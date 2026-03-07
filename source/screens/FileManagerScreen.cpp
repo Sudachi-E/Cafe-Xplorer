@@ -335,10 +335,6 @@ bool FileManagerScreen::Update(Input &input) {
         }
     }
     
-    if (input.data.buttons_d & Input::BUTTON_HOME) {
-        return false;
-    }
-    
     return true;
 }
 

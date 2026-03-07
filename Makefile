@@ -15,7 +15,7 @@ TOPDIR ?= $(CURDIR)
 #-------------------------------------------------------------------------------
 APP_NAME		:= Cafe-Xplorer
 APP_SHORTNAME	:= Cafe-Xplorer
-APP_AUTHOR		:= devkitPro
+APP_AUTHOR		:= SudoTronics
 
 include $(DEVKITPRO)/wut/share/wut_rules
 
