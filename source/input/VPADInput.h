@@ -16,6 +16,10 @@ public:
         data.buttons_h = vpad.hold;
         data.buttons_d = vpad.trigger;
         data.buttons_r = vpad.release;
+        data.leftStickX = vpad.leftStick.x;
+        data.leftStickY = vpad.leftStick.y;
+        data.rightStickX = vpad.rightStick.x;
+        data.rightStickY = vpad.rightStick.y;
         return true;
     }
 };

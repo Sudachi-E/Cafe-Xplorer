@@ -26,6 +26,10 @@ public:
         uint32_t buttons_h;
         uint32_t buttons_d;
         uint32_t buttons_r;
+        float leftStickX;
+        float leftStickY;
+        float rightStickX;
+        float rightStickY;
     } PadData;
 
     PadData data{};

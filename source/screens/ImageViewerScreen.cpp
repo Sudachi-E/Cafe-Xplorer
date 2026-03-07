@@ -50,7 +50,7 @@ void ImageViewerScreen::Draw() {
     Gfx::Clear(Gfx::COLOR_BLACK);
     
     DrawTopBar(mImagePath.c_str());
-    DrawBottomBar("B: Back", "L/R: Zoom", "X: Reset");
+    DrawBottomBar("B: Back", "Left Stick: Pan | Right Stick: Zoom", "X: Reset");
     
     if (mLoadError) {
         Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 48,
@@ -86,6 +86,22 @@ bool ImageViewerScreen::Update(Input &input) {
     if (input.data.buttons_d & Input::BUTTON_L) {
         mZoom /= 1.25f;
         if (mZoom < 0.1f) mZoom = 0.1f;
+    }
+    
+    // Right stick zoom (vertical axis)
+    const float deadzone = 0.2f;
+    if (std::abs(input.data.rightStickY) > deadzone) {
+        float zoomSpeed = 0.02f;
+        mZoom += input.data.rightStickY * zoomSpeed;
+        if (mZoom > 5.0f) mZoom = 5.0f;
+        if (mZoom < 0.1f) mZoom = 0.1f;
+    }
+    
+    // Left stick panning
+    if (std::abs(input.data.leftStickX) > deadzone || std::abs(input.data.leftStickY) > deadzone) {
+        float panSpeed = 10.0f;
+        mOffsetX += input.data.leftStickX * panSpeed;
+        mOffsetY -= input.data.leftStickY * panSpeed;
     }
     
     if (mZoom > 1.0f) {
