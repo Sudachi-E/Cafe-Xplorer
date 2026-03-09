@@ -31,6 +31,8 @@ private:
     bool mIsPaused;
     bool mInitialized;
     bool mShowUI;
+    bool mIsRawVideo;
+    bool mShowRawVideoWarning;
     
     int mVideoWidth;
     int mVideoHeight;

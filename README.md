@@ -5,7 +5,7 @@ A multi-purpose file manager for the Nintendo Wii U.
 ## Features
 
 ### File Management
-- Browse SD card files and directories (USB support in the future)
+- Browse full Wii U filesystem
 - Navigate with D-Pad
 - View file information (name, size, type)
 - Create new files and folders
@@ -46,6 +46,7 @@ A multi-purpose file manager for the Nintendo Wii U.
   - [wut](https://github.com/devkitPro/wut)
   - [wiiu-sdl2](https://github.com/yawut/SDL) (wiiu-sdl2_ttf, wiiu-sdl2_image)
   - [FFmpeg](https://github.com/GaryOderNichts/FFmpeg-wiiu) (libavformat, libavcodec, libavutil, libswscale, libswresample)
+  - [libmocha](https://github.com/wiiu-env/libmocha)
 
 ## Build
 ```bash
@@ -53,7 +54,7 @@ make
 ```
 
 ## Installation
-Copy `Café-Xplorer.wuhb`, or `.rpx` to `sd:/wiiu/apps/`
+Copy `Café-Xplorer.wuhb` or `.rpx` to `sd:/wiiu/apps/`
 
 ## Screenshots
 
@@ -83,3 +84,5 @@ Copy `Café-Xplorer.wuhb`, or `.rpx` to `sd:/wiiu/apps/`
 - [@WiiUIdent](https://github.com/GaryOderNichts/WiiUIdent) UI used as the framework
 - [@FFmpeg](https://github.com/FFmpeg/FFmpeg) for audio/video
 - UI/Name design inspired by [N-Xplorer](https://github.com/CompSciOrBust/N-Xplorer) by [@CompSciOrBust](https://github.com/CompSciOrBust)
+- [@wiiu-env](https://github.com/wiiu-env) for [libmocha](https://github.com/wiiu-env/libmocha) filesystem access
+- [@wiiu-env](https://github.com/wiiu-env) for [librpxloader](https://github.com/wiiu-env/librpxloader) for loading .rpx and .wuhb files

@@ -3,22 +3,40 @@
 #include "ImageViewerScreen.hpp"
 #include "VideoPlayerScreen.hpp"
 #include "AudioPlayerScreen.hpp"
+#include "SettingsScreen.hpp"
 #include "../Gfx.hpp"
 #include "../utils/Keyboard.hpp"
+#include "../utils/Settings.hpp"
+#include "../utils/FilesystemManager.hpp"
+#include "../filemanager/PathConverter.hpp"
 #include <whb/log.h>
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
 #include <fstream>
 #include <coreinit/time.h>
+#include <coreinit/title.h>
+#include <sysapp/launch.h>
+#include <rpxloader/rpxloader.h>
 
-FileManagerScreen::FileManagerScreen() : mSelectedIndex(0), mScrollOffset(0), mShowContextMenu(false), mContextMenuSelection(0), mClipboardIsDirectory(false), mClipboardIsMove(false), mShowDeletionModal(false), mShowLoadingModal(false), mLoadingStartTime(0) {
-    mFileManager.ScanDirectory("fs:/vol/external01");
+FileManagerScreen::FileManagerScreen() : mSelectedIndex(0), mScrollOffset(0), mShowContextMenu(false), mContextMenuSelection(0), mClipboardIsDirectory(false), mClipboardIsMove(false), mShowDeletionModal(false), mShowLoadingModal(false), mLoadingStartTime(0), mShowLaunchConfirmModal(false), mLaunchModalSelection(0), mLastAnalogScrollTime(0) {
+    Settings::Initialize();
+    
+    if (Settings::GetFullFilesystemAccess()) {
+        mFileManager.ScanDirectory("/");
+    } else {
+        mFileManager.ScanDirectory("/fs/vol/external01");
+    }
 }
 
 FileManagerScreen::~FileManagerScreen() = default;
 
 void FileManagerScreen::Draw() {
+    if (mSettingsScreen) {
+        mSettingsScreen->Draw();
+        return;
+    }
+    
     if (mTextEditor) {
         mTextEditor->Draw();
         return;
@@ -43,7 +61,7 @@ void FileManagerScreen::Draw() {
     
     DrawTopBar(mFileManager.GetCurrentPath().c_str());
     
-    std::string leftText = "A: Select  X: Menu";
+    std::string leftText = "A: Select  X: Menu  Y: Settings";
     if (mFileManager.HasMoreEntries()) {
         std::ostringstream oss;
         oss << "Loaded " << mFileManager.GetEntries().size() << "/" << mFileManager.GetTotalEntryCount();
@@ -112,9 +130,57 @@ void FileManagerScreen::Draw() {
     if (mShowLoadingModal) {
         DrawLoadingModal();
     }
+    
+    if (mShowLaunchConfirmModal) {
+        DrawLaunchConfirmModal();
+    }
 }
 
 bool FileManagerScreen::Update(Input &input) {
+    if (mShowLaunchConfirmModal) {
+        if (input.data.buttons_d & Input::BUTTON_LEFT || input.data.buttons_d & Input::BUTTON_RIGHT) {
+            mLaunchModalSelection = 1 - mLaunchModalSelection;
+        }
+        
+        if (input.data.buttons_d & Input::BUTTON_A) {
+            if (mLaunchModalSelection == 0) {
+                LaunchHomebrew(mLaunchFilePath);
+            }
+            mShowLaunchConfirmModal = false;
+            mLaunchModalSelection = 0;
+        }
+        
+        if (input.data.buttons_d & Input::BUTTON_B) {
+            mShowLaunchConfirmModal = false;
+            mLaunchModalSelection = 0;
+        }
+        
+        return true;
+    }
+    
+    if (mSettingsScreen) {
+        if (!mSettingsScreen->Update(input) || mSettingsScreen->ShouldClose()) {
+            if (mSettingsScreen->SettingsChanged()) {
+                PathConverter::ClearRootDirectory();
+                PathConverter::AddRootDirectory("fs");
+                
+                if (Settings::GetFullFilesystemAccess()) {
+                    WHBLogPrintf("Mounting filesystems after settings change");
+                    FilesystemManager::MountAllFilesystems();
+                    mFileManager.ScanDirectory("/");
+                } else {
+                    WHBLogPrintf("Unmounting filesystems after settings change");
+                    FilesystemManager::UnmountAllFilesystems();
+                    mFileManager.ScanDirectory("/fs/vol/external01");
+                }
+                mSelectedIndex = 0;
+                mScrollOffset = 0;
+            }
+            mSettingsScreen.reset();
+        }
+        return true;
+    }
+    
     if (mTextEditor) {
         if (!mTextEditor->Update(input) || mTextEditor->ShouldClose()) {
             mTextEditor.reset();
@@ -144,9 +210,14 @@ bool FileManagerScreen::Update(Input &input) {
         return true;
     }
     
+    if (input.data.buttons_d & Input::BUTTON_Y) {
+        mSettingsScreen = std::make_unique<SettingsScreen>();
+        return true;
+    }
+    
     if (input.data.buttons_d & Input::BUTTON_X) {
         mShowContextMenu = !mShowContextMenu;
-        mContextMenuSelection = 0; // Reset selection when opening menu
+        mContextMenuSelection = 0;
         return true;
     }
     
@@ -249,6 +320,7 @@ bool FileManagerScreen::Update(Input &input) {
     
     const auto& entries = mFileManager.GetEntries();
     
+    // Handle D-pad navigation
     if (input.data.buttons_d & Input::BUTTON_DOWN) {
         if (!entries.empty()) {
             mSelectedIndex = (mSelectedIndex + 1) % entries.size();
@@ -262,6 +334,36 @@ bool FileManagerScreen::Update(Input &input) {
     if (input.data.buttons_d & Input::BUTTON_UP) {
         if (!entries.empty()) {
             mSelectedIndex = (mSelectedIndex == 0) ? entries.size() - 1 : mSelectedIndex - 1;
+        }
+    }
+    
+    // Handle left analog stick for faster navigation
+    if (!entries.empty()) {
+        const float STICK_THRESHOLD = 0.5f;
+        const int FAST_SCROLL_AMOUNT = 5;
+        const uint64_t ANALOG_SCROLL_DELAY_MS = 150; // Delay between analog scroll movements
+        
+        uint64_t currentTime = OSGetSystemTime();
+        uint64_t timeSinceLastScroll = OSTicksToMilliseconds(currentTime - mLastAnalogScrollTime);
+        
+        if (timeSinceLastScroll >= ANALOG_SCROLL_DELAY_MS) {
+            if (input.data.leftStickY < -STICK_THRESHOLD) {
+                // Stick pushed down - move down faster
+                mSelectedIndex = std::min(mSelectedIndex + FAST_SCROLL_AMOUNT, entries.size() - 1);
+                mLastAnalogScrollTime = currentTime;
+                
+                if (mFileManager.HasMoreEntries() && mSelectedIndex >= entries.size() - 10) {
+                    mFileManager.LoadMoreEntries();
+                }
+            } else if (input.data.leftStickY > STICK_THRESHOLD) {
+                // Stick pushed up - move up faster
+                if (mSelectedIndex >= FAST_SCROLL_AMOUNT) {
+                    mSelectedIndex -= FAST_SCROLL_AMOUNT;
+                } else {
+                    mSelectedIndex = 0;
+                }
+                mLastAnalogScrollTime = currentTime;
+            }
         }
     }
     
@@ -284,10 +386,25 @@ bool FileManagerScreen::Update(Input &input) {
                     mImageViewer = std::make_unique<ImageViewerScreen>(entry.path);
                 }
                 else if (IsVideoFile(entry.name)) {
+                    WHBLogPrintf("===========================================");
+                    WHBLogPrintf("VIDEO FILE SELECTED");
+                    WHBLogPrintf("===========================================");
+                    WHBLogPrintf("File name: %s", entry.name.c_str());
+                    WHBLogPrintf("Full path: %s", entry.path.c_str());
+                    WHBLogPrintf("File size: %u bytes", (unsigned int)entry.size);
+                    WHBLogPrintf("Creating VideoPlayerScreen...");
                     mVideoPlayer = std::make_unique<VideoPlayerScreen>(entry.path);
+                    WHBLogPrintf("VideoPlayerScreen created");
+                    WHBLogPrintf("===========================================");
                 }
                 else if (IsAudioFile(entry.name)) {
                     mAudioPlayer = std::make_unique<AudioPlayerScreen>(entry.path);
+                }
+                else if (IsRPXFile(entry.name) || IsWUHBFile(entry.name)) {
+                    mLaunchFileName = entry.name;
+                    mLaunchFilePath = entry.path;
+                    mShowLaunchConfirmModal = true;
+                    mLaunchModalSelection = 0;
                 }
             }
         }
@@ -295,7 +412,7 @@ bool FileManagerScreen::Update(Input &input) {
     
     if (input.data.buttons_d & Input::BUTTON_B) {
         std::string currentPath = mFileManager.GetCurrentPath();
-        if (currentPath != "fs:/vol/external01" && currentPath != "fs:/vol/external01/") {
+        if (currentPath != "/" && !currentPath.empty()) {
             mLoadingPath = "..";
             mLoadingStartTime = OSGetSystemTime();
             mShowLoadingModal = false;
@@ -389,6 +506,20 @@ bool FileManagerScreen::IsAudioFile(const std::string& filename) {
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
     
     return lower.ends_with(".mp3");
+}
+
+bool FileManagerScreen::IsRPXFile(const std::string& filename) {
+    std::string lower = filename;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    
+    return lower.ends_with(".rpx");
+}
+
+bool FileManagerScreen::IsWUHBFile(const std::string& filename) {
+    std::string lower = filename;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    
+    return lower.ends_with(".wuhb");
 }
 
 void FileManagerScreen::DrawContextMenu() {
@@ -574,3 +705,213 @@ bool FileManagerScreen::ScanDirectoryWithModal(const std::string& path) {
     return result;
 }
 
+void FileManagerScreen::DrawLaunchConfirmModal() {
+    Gfx::DrawRectFilled(0, 0, Gfx::SCREEN_WIDTH, Gfx::SCREEN_HEIGHT, SDL_Color{0, 0, 0, 180});
+    
+    int modalWidth = 900;
+    int modalHeight = 300;
+    int modalX = (Gfx::SCREEN_WIDTH - modalWidth) / 2;
+    int modalY = (Gfx::SCREEN_HEIGHT - modalHeight) / 2;
+    int borderWidth = 4;
+    
+    Gfx::DrawRectFilled(modalX, modalY, modalWidth, modalHeight, Gfx::COLOR_ALT_BACKGROUND);
+    Gfx::DrawRectFilled(modalX, modalY, modalWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED);
+    Gfx::DrawRectFilled(modalX, modalY + modalHeight - borderWidth, modalWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED);
+    Gfx::DrawRectFilled(modalX, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED);
+    Gfx::DrawRectFilled(modalX + modalWidth - borderWidth, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED);
+    
+    std::string message = "Are you sure you want to open";
+    Gfx::Print(modalX + modalWidth / 2, modalY + 60, 42, 
+               Gfx::COLOR_WHITE, message, Gfx::ALIGN_CENTER);
+    
+    Gfx::Print(modalX + modalWidth / 2, modalY + 110, 44, 
+               Gfx::COLOR_WHITE, mLaunchFileName + "?", Gfx::ALIGN_CENTER);
+    
+    int buttonY = modalY + 190;
+    int buttonWidth = 200;
+    int buttonHeight = 60;
+    int buttonSpacing = 50;
+    int yesButtonX = modalX + (modalWidth / 2) - buttonWidth - (buttonSpacing / 2);
+    int noButtonX = modalX + (modalWidth / 2) + (buttonSpacing / 2);
+    
+    if (mLaunchModalSelection == 0) {
+        Gfx::DrawRectFilled(yesButtonX, buttonY, buttonWidth, buttonHeight, Gfx::COLOR_HIGHLIGHTED);
+    } else {
+        Gfx::DrawRectFilled(yesButtonX, buttonY, buttonWidth, buttonHeight, Gfx::COLOR_BARS);
+    }
+    Gfx::Print(yesButtonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 5, 40, 
+               Gfx::COLOR_WHITE, "Yes!", Gfx::ALIGN_CENTER);
+    
+    if (mLaunchModalSelection == 1) {
+        Gfx::DrawRectFilled(noButtonX, buttonY, buttonWidth, buttonHeight, Gfx::COLOR_HIGHLIGHTED);
+    } else {
+        Gfx::DrawRectFilled(noButtonX, buttonY, buttonWidth, buttonHeight, Gfx::COLOR_BARS);
+    }
+    Gfx::Print(noButtonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 5, 40, 
+               Gfx::COLOR_WHITE, "Never mind", Gfx::ALIGN_CENTER);
+}
+
+void FileManagerScreen::LaunchHomebrew(const std::string& path) {
+    WHBLogPrintf("===========================================");
+    WHBLogPrintf("LAUNCHING HOMEBREW/GAME");
+    WHBLogPrintf("===========================================");
+    WHBLogPrintf("Display path: %s", path.c_str());
+    
+    // Convert display path to real path first
+    std::string realPath = PathConverter::ToRealPath(path);
+    WHBLogPrintf("Real path: %s", realPath.c_str());
+    
+    // Check if this is a game RPX (inside a code folder with content/meta siblings)
+    // Path format: /storage_usb/usr/title/00050000/101c9500/code/U-King.rpx
+    bool isGameRPX = false;
+    uint64_t titleId = 0;
+    
+    // Check if path contains "/code/" and extract title ID
+    size_t codePos = realPath.find("/code/");
+    if (codePos != std::string::npos) {
+        // Extract the parent directory (should be the title ID folder)
+        std::string beforeCode = realPath.substr(0, codePos);
+        size_t lastSlash = beforeCode.find_last_of('/');
+        
+        if (lastSlash != std::string::npos) {
+            std::string titleIdStr = beforeCode.substr(lastSlash + 1);
+            WHBLogPrintf("Potential title ID: %s", titleIdStr.c_str());
+            
+            // Try to parse as hex title ID (8 characters for low part)
+            if (titleIdStr.length() == 8) {
+                try {
+                    uint32_t titleIdLow = std::stoul(titleIdStr, nullptr, 16);
+                    
+                    // Check for high part in path (e.g., 00050000)
+                    size_t titleIdPos = beforeCode.find_last_of('/', lastSlash - 1);
+                    if (titleIdPos != std::string::npos) {
+                        std::string highIdStr = beforeCode.substr(titleIdPos + 1, lastSlash - titleIdPos - 1);
+                        WHBLogPrintf("Potential high ID: %s", highIdStr.c_str());
+                        
+                        if (highIdStr.length() == 8) {
+                            uint32_t titleIdHigh = std::stoul(highIdStr, nullptr, 16);
+                            titleId = ((uint64_t)titleIdHigh << 32) | titleIdLow;
+                            isGameRPX = true;
+                            WHBLogPrintf("Detected game title ID: %08X-%08X", titleIdHigh, titleIdLow);
+                        }
+                    }
+                } catch (...) {
+                    WHBLogPrintf("Failed to parse title ID");
+                }
+            }
+        }
+    }
+    
+    if (isGameRPX && titleId != 0) {
+        WHBLogPrintf("This is a full WiiU game RPX");
+        WHBLogPrintf("Title ID: %016llX", titleId);
+        WHBLogPrintf("Launching game via _SYSLaunchTitleWithStdArgsInNoSplash");
+        
+        // Launch the game using its title ID
+        // The system will automatically find the game files on USB
+        _SYSLaunchTitleWithStdArgsInNoSplash(titleId, nullptr);
+        
+        // If we reach here, launch may have failed or is processing
+        WHBLogPrintf("Launch command sent");
+        WHBLogPrintf("===========================================");
+        return;
+    }
+    
+    // Not a game RPX, treat as homebrew
+    WHBLogPrintf("Treating as homebrew application");
+    
+    bool isUSB = (realPath.find("storage_usb:/") == 0);
+    std::string launchPath;
+    std::string tempFilePath;
+    bool needsCleanup = false;
+    
+    if (isUSB) {
+        WHBLogPrintf("USB path detected - RPXLoader only supports SD card");
+        WHBLogPrintf("Copying file to temporary SD location...");
+        
+        // Extract filename from path
+        size_t lastSlash = realPath.find_last_of('/');
+        std::string filename = (lastSlash != std::string::npos) ? realPath.substr(lastSlash + 1) : realPath;
+        
+        // Create temp path on SD card
+        tempFilePath = "sd:/wiiu/temp_rpx_" + filename;
+        
+        WHBLogPrintf("Temp file: %s", tempFilePath.c_str());
+        
+        // Copy file from USB to SD
+        std::ifstream src(realPath, std::ios::binary);
+        if (!src.is_open()) {
+            WHBLogPrintf("ERROR: Failed to open source file: %s", realPath.c_str());
+            WHBLogPrintf("===========================================");
+            return;
+        }
+        
+        std::ofstream dst(tempFilePath, std::ios::binary);
+        if (!dst.is_open()) {
+            WHBLogPrintf("ERROR: Failed to create temp file: %s", tempFilePath.c_str());
+            src.close();
+            WHBLogPrintf("===========================================");
+            return;
+        }
+        
+        // Copy the file
+        dst << src.rdbuf();
+        src.close();
+        dst.close();
+        
+        WHBLogPrintf("File copied successfully");
+        
+        // Use the temp file path (remove sd:/ prefix for RPXLoader)
+        launchPath = "wiiu/temp_rpx_" + filename;
+        needsCleanup = true;
+    }
+    else {
+        // SD card path - normalize for RPXLoader
+        if (realPath.find("sd:/") == 0) {
+            launchPath = realPath.substr(4);  // Remove "sd:/"
+            WHBLogPrintf("SD path detected, normalized to: %s", launchPath.c_str());
+        }
+        else if (realPath.find("fs:/vol/external01/") == 0) {
+            launchPath = realPath.substr(19);  // Remove "fs:/vol/external01/"
+            WHBLogPrintf("FS SD path detected, normalized to: %s", launchPath.c_str());
+        }
+        else {
+            launchPath = realPath;
+            WHBLogPrintf("Using path as-is: %s", launchPath.c_str());
+        }
+    }
+    
+    // Initialize RPXLoader
+    RPXLoaderStatus initRes = RPXLoader_InitLibrary();
+    if (initRes != RPX_LOADER_RESULT_SUCCESS) {
+        WHBLogPrintf("RPXLoader_InitLibrary failed: %s", RPXLoader_GetStatusStr(initRes));
+        if (needsCleanup) {
+            std::remove(tempFilePath.c_str());
+            WHBLogPrintf("Temp file cleaned up");
+        }
+        WHBLogPrintf("===========================================");
+        return;
+    }
+    
+    WHBLogPrintf("RPXLoader initialized successfully");
+    WHBLogPrintf("Attempting to launch: %s", launchPath.c_str());
+    
+    // Launch the homebrew
+    RPXLoaderStatus res = RPXLoader_LaunchHomebrew(launchPath.c_str());
+    if (res != RPX_LOADER_RESULT_SUCCESS) {
+        WHBLogPrintf("Failed to launch: %s", RPXLoader_GetStatusStr(res));
+    } else {
+        WHBLogPrintf("Launch successful!");
+    }
+    
+    // Cleanup
+    RPXLoader_DeInitLibrary();
+    
+    // Clean up temp file if launch failed
+    if (needsCleanup && res != RPX_LOADER_RESULT_SUCCESS) {
+        std::remove(tempFilePath.c_str());
+        WHBLogPrintf("Temp file cleaned up");
+    }
+    
+    WHBLogPrintf("===========================================");
+}

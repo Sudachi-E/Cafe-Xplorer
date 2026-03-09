@@ -1,10 +1,11 @@
 #include "AudioPlayerScreen.hpp"
 #include "../Gfx.hpp"
+#include "../filemanager/PathConverter.hpp"
 #include <whb/log.h>
 #include <SDL2/SDL_mixer.h>
 
 AudioPlayerScreen::AudioPlayerScreen(const std::string& audioPath)
-    : mAudioPath(audioPath), mMusic(nullptr), mShouldClose(false), mLoadError(false),
+    : mAudioPath(PathConverter::ToRealPath(audioPath)), mMusic(nullptr), mShouldClose(false), mLoadError(false),
       mIsPlaying(false), mIsPaused(false), mInitialized(false),
       mDuration(0.0), mErrorCode(0) {
     

@@ -46,26 +46,62 @@ int64_t VideoDecoder::Seek(void* opaque, int64_t offset, int whence) {
 }
 
 bool VideoDecoder::Open(const std::string& path) {
+    WHBLogPrintf("===========================================");
     WHBLogPrintf("VideoDecoder::Open: Starting to open: %s", path.c_str());
+    WHBLogPrintf("===========================================");
     
     static bool ffmpegInitialized = false;
     if (!ffmpegInitialized) {
-        WHBLogPrintf("VideoDecoder::Open: Initializing FFmpeg");
+        WHBLogPrintf("VideoDecoder::Open: Initializing FFmpeg - Listing ALL available decoders");
         
-        // List available audio decoders
-        WHBLogPrintf("VideoDecoder::Open: Available audio decoders:");
+        WHBLogPrintf("VideoDecoder::Open: === VIDEO DECODERS ===");
         void* opaque = nullptr;
         const AVCodec* codec = nullptr;
-        int count = 0;
+        int videoCount = 0;
         while ((codec = av_codec_iterate(&opaque))) {
-            if (av_codec_is_decoder(codec) && codec->type == AVMEDIA_TYPE_AUDIO) {
-                WHBLogPrintf("  - %s (ID: %d)", codec->name, codec->id);
-                count++;
-                if (count >= 10) break; // Limit output
+            if (av_codec_is_decoder(codec) && codec->type == AVMEDIA_TYPE_VIDEO) {
+                WHBLogPrintf("  VIDEO: %s (ID: %d)", codec->name, codec->id);
+                videoCount++;
+                if (videoCount >= 20) {
+                    WHBLogPrintf("  ... (truncated, showing first 20)");
+                    break;
+                }
             }
         }
-        WHBLogPrintf("VideoDecoder::Open: Listed %d audio decoders", count);
+        WHBLogPrintf("VideoDecoder::Open: Total video decoders found: %d", videoCount);
         
+        WHBLogPrintf("VideoDecoder::Open: === AUDIO DECODERS ===");
+        opaque = nullptr;
+        codec = nullptr;
+        int audioCount = 0;
+        while ((codec = av_codec_iterate(&opaque))) {
+            if (av_codec_is_decoder(codec) && codec->type == AVMEDIA_TYPE_AUDIO) {
+                WHBLogPrintf("  AUDIO: %s (ID: %d)", codec->name, codec->id);
+                audioCount++;
+                if (audioCount >= 15) {
+                    WHBLogPrintf("  ... (truncated, showing first 15)");
+                    break;
+                }
+            }
+        }
+        WHBLogPrintf("VideoDecoder::Open: Total audio decoders found: %d", audioCount);
+        
+        WHBLogPrintf("VideoDecoder::Open: === CHECKING FOR SPECIFIC CODECS ===");
+        const AVCodec* mpeg4_codec = avcodec_find_decoder(AV_CODEC_ID_MPEG4);
+        if (mpeg4_codec) {
+            WHBLogPrintf("  ✓ MPEG4 decoder (ID 13) FOUND: %s", mpeg4_codec->name);
+        } else {
+            WHBLogPrintf("  ✗ MPEG4 decoder (ID 13) NOT FOUND!");
+        }
+        
+        const AVCodec* h264_codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+        if (h264_codec) {
+            WHBLogPrintf("  ✓ H264 decoder (ID 27) FOUND: %s", h264_codec->name);
+        } else {
+            WHBLogPrintf("  ✗ H264 decoder (ID 27) NOT FOUND!");
+        }
+        
+        WHBLogPrintf("VideoDecoder::Open: === INITIALIZATION COMPLETE ===");
         ffmpegInitialized = true;
     }
     
@@ -80,11 +116,16 @@ bool VideoDecoder::Open(const std::string& path) {
             WHBLogPrintf("VideoDecoder::Open: First 4 bytes: %02X %02X %02X %02X", 
                          header[0], header[1], header[2], header[3]);
             
-            // Check for ID3 tag
-            if (header[0] == 'I' && header[1] == 'D' && header[2] == '3') {
+            if (header[0] == 'R' && header[1] == 'I' && header[2] == 'F' && header[3] == 'F') {
+                WHBLogPrintf("VideoDecoder::Open: ✓ AVI/RIFF container detected");
+            }
+            // Check for MP4 signature
+            else if (bytesRead >= 8 && header[4] == 'f' && header[5] == 't' && header[6] == 'y' && header[7] == 'p') {
+                WHBLogPrintf("VideoDecoder::Open: ✓ MP4 container detected");
+            }
+            else if (header[0] == 'I' && header[1] == 'D' && header[2] == '3') {
                 WHBLogPrintf("VideoDecoder::Open: ID3v2 tag detected");
             }
-            // Check for MP3 frame sync
             else if (header[0] == 0xFF && (header[1] & 0xE0) == 0xE0) {
                 WHBLogPrintf("VideoDecoder::Open: MP3 frame sync detected");
             }
@@ -228,10 +269,15 @@ bool VideoDecoder::Open(const std::string& path) {
     }
     
     if (mVideoStreamIndex != -1) {
-        WHBLogPrintf("VideoDecoder::Open: Setting up video codec");
+        WHBLogPrintf("===========================================");
+        WHBLogPrintf("VideoDecoder::Open: SETTING UP VIDEO CODEC");
+        WHBLogPrintf("===========================================");
         
         AVCodecParameters* codecParams = mFormatCtx->streams[mVideoStreamIndex]->codecpar;
         WHBLogPrintf("VideoDecoder::Open: Video codec ID: %d", codecParams->codec_id);
+        WHBLogPrintf("VideoDecoder::Open: Video codec name: %s", avcodec_get_name(codecParams->codec_id));
+        WHBLogPrintf("VideoDecoder::Open: Video dimensions: %dx%d", codecParams->width, codecParams->height);
+        WHBLogPrintf("VideoDecoder::Open: Video bitrate: %lld", codecParams->bit_rate);
         
         const AVCodec* codec = nullptr;
         
@@ -245,17 +291,26 @@ bool VideoDecoder::Open(const std::string& path) {
                 codec = avcodec_find_decoder(codecParams->codec_id);
             }
         } else {
+            WHBLogPrintf("VideoDecoder::Open: Searching for decoder for codec ID %d...", codecParams->codec_id);
             codec = avcodec_find_decoder(codecParams->codec_id);
         }
         
         if (!codec) {
-            WHBLogPrintf("VideoDecoder::Open: FAILED - Video codec not found");
+            WHBLogPrintf("===========================================");
+            WHBLogPrintf("VideoDecoder::Open: ✗✗✗ CODEC NOT FOUND ✗✗✗");
+            WHBLogPrintf("===========================================");
+            WHBLogPrintf("  Codec ID: %d", codecParams->codec_id);
+            WHBLogPrintf("  Codec Name: %s", avcodec_get_name(codecParams->codec_id));
+            WHBLogPrintf("  This means FFmpeg doesn't have a decoder for this codec!");
+            WHBLogPrintf("  Check if FFmpeg was built with this codec enabled.");
+            WHBLogPrintf("===========================================");
             mWidth = codecParams->codec_id;
             mHeight = 4;
             Close();
             return false;
         }
-        WHBLogPrintf("VideoDecoder::Open: Video codec found: %s", codec->name);
+        WHBLogPrintf("VideoDecoder::Open: ✓ Video codec found: %s", codec->name);
+        WHBLogPrintf("VideoDecoder::Open: Codec long name: %s", codec->long_name ? codec->long_name : "N/A");
         
         mVideoCodecCtx = avcodec_alloc_context3(codec);
         if (!mVideoCodecCtx) {
@@ -409,9 +464,16 @@ bool VideoDecoder::Open(const std::string& path) {
                             AV_PIX_FMT_RGBA, mWidth, mHeight, 1);
         
         WHBLogPrintf("VideoDecoder::Open: Initializing SWS context");
+        int swsFlags = SWS_FAST_BILINEAR;
+        
+        if (mVideoCodecCtx->codec_id == AV_CODEC_ID_RAWVIDEO) {
+            swsFlags = SWS_POINT;
+            WHBLogPrintf("VideoDecoder::Open: Using SWS_POINT (fastest) for raw video");
+        }
+        
         mSwsCtx = sws_getContext(mWidth, mHeight, mVideoCodecCtx->pix_fmt,
                                 mWidth, mHeight, AV_PIX_FMT_RGBA,
-                                SWS_BILINEAR, nullptr, nullptr, nullptr);
+                                swsFlags, nullptr, nullptr, nullptr);
         
         if (!mSwsCtx) {
             WHBLogPrintf("VideoDecoder::Open: FAILED - Could not initialize SWS context");
@@ -543,9 +605,7 @@ bool VideoDecoder::ReadFrame(SDL_Texture* texture) {
     Uint32 frameStartTime = SDL_GetTicks();
     frameCount++;
     
-    Uint32 lockStartTime = SDL_GetTicks();
     SDL_LockMutex(mPacketMutex);
-    Uint32 lockEndTime = SDL_GetTicks();
     
     if (mVideoPacketQueue.empty()) {
         SDL_UnlockMutex(mPacketMutex);
@@ -585,17 +645,27 @@ bool VideoDecoder::ReadFrame(SDL_Texture* texture) {
         
         if (texture) {
             Uint32 scaleStartTime = SDL_GetTicks();
-            sws_scale(mSwsCtx, mFrame->data, mFrame->linesize, 0, mHeight,
-                     mFrameRGB->data, mFrameRGB->linesize);
+            
+            int result = sws_scale(mSwsCtx, 
+                                  (const uint8_t* const*)mFrame->data, 
+                                  mFrame->linesize, 
+                                  0, mHeight,
+                                  mFrameRGB->data, 
+                                  mFrameRGB->linesize);
+            
             Uint32 scaleEndTime = SDL_GetTicks();
             Uint32 scaleTime = scaleEndTime - scaleStartTime;
             totalScaleTime += scaleTime;
             
-            Uint32 textureStartTime = SDL_GetTicks();
-            SDL_UpdateTexture(texture, nullptr, mFrameRGB->data[0], mFrameRGB->linesize[0]);
-            Uint32 textureEndTime = SDL_GetTicks();
-            Uint32 textureTime = textureEndTime - textureStartTime;
-            totalTextureTime += textureTime;
+            if (result > 0) {
+                Uint32 textureStartTime = SDL_GetTicks();
+                
+                SDL_UpdateTexture(texture, nullptr, mFrameRGB->data[0], mFrameRGB->linesize[0]);
+                
+                Uint32 textureEndTime = SDL_GetTicks();
+                Uint32 textureTime = textureEndTime - textureStartTime;
+                totalTextureTime += textureTime;
+            }
         }
         
         Uint32 frameEndTime = SDL_GetTicks();
@@ -607,11 +677,12 @@ bool VideoDecoder::ReadFrame(SDL_Texture* texture) {
             double avgScale = framesProcessed > 0 ? (double)totalScaleTime / framesProcessed : 0;
             double avgTexture = framesProcessed > 0 ? (double)totalTextureTime / framesProcessed : 0;
             double avDrift = mCurrentTime - mAudioTime;
+            double fps = framesProcessed / 2.0;  // Frames in 2 seconds
             
-            WHBLogPrintf("[VIDEO] Frame #%d vPTS=%.2f aPTS=%.2f drift=%.0fms vQ=%d aQ=%d", 
-                         frameCount, mCurrentTime, mAudioTime, avDrift * 1000.0, videoQueueSize, audioQueueSize);
-            WHBLogPrintf("[VIDEO] Timing: total=%ums decode=%.1fms scale=%.1fms texture=%.1fms lock=%ums", 
-                         totalFrameTime, avgDecode, avgScale, avgTexture, lockEndTime - lockStartTime);
+            WHBLogPrintf("[VIDEO] Frame #%d vPTS=%.2f aPTS=%.2f drift=%.0fms vQ=%d aQ=%d FPS=%.1f", 
+                         frameCount, mCurrentTime, mAudioTime, avDrift * 1000.0, videoQueueSize, audioQueueSize, fps);
+            WHBLogPrintf("[VIDEO] Timing: total=%ums decode=%.1fms scale=%.1fms texture=%.1fms", 
+                         totalFrameTime, avgDecode, avgScale, avgTexture);
             
             lastLogTime = now;
             totalDecodeTime = 0;

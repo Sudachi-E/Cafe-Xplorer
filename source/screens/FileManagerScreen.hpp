@@ -8,6 +8,7 @@ class TextEditorScreen;
 class ImageViewerScreen;
 class VideoPlayerScreen;
 class AudioPlayerScreen;
+class SettingsScreen;
 
 class FileManagerScreen : public Screen {
 public:
@@ -24,6 +25,7 @@ private:
     std::unique_ptr<ImageViewerScreen> mImageViewer;
     std::unique_ptr<VideoPlayerScreen> mVideoPlayer;
     std::unique_ptr<AudioPlayerScreen> mAudioPlayer;
+    std::unique_ptr<SettingsScreen> mSettingsScreen;
     bool mShowContextMenu;
     int mContextMenuSelection;
     std::string mClipboardPath;
@@ -35,16 +37,25 @@ private:
     bool mShowLoadingModal;
     std::string mLoadingPath;
     uint64_t mLoadingStartTime;
+    bool mShowLaunchConfirmModal;
+    std::string mLaunchFileName;
+    std::string mLaunchFilePath;
+    int mLaunchModalSelection;
+    uint64_t mLastAnalogScrollTime;
     
     static std::string FormatSize(size_t bytes);
     static bool IsTextFile(const std::string& filename);
     static bool IsImageFile(const std::string& filename);
     static bool IsVideoFile(const std::string& filename);
     static bool IsAudioFile(const std::string& filename);
+    static bool IsRPXFile(const std::string& filename);
+    static bool IsWUHBFile(const std::string& filename);
     void DrawContextMenu();
     void DrawDeletionModal();
     void DrawLoadingModal();
+    void DrawLaunchConfirmModal();
     void CreateNewFile(const std::string& filename);
     void CreateNewFolder(const std::string& foldername);
     bool ScanDirectoryWithModal(const std::string& path);
+    void LaunchHomebrew(const std::string& path);
 };

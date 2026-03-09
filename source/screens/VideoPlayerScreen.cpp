@@ -1,11 +1,13 @@
 #include "VideoPlayerScreen.hpp"
 #include "../Gfx.hpp"
+#include "../filemanager/PathConverter.hpp"
 #include <whb/log.h>
 
 VideoPlayerScreen::VideoPlayerScreen(const std::string& videoPath)
-    : mVideoPath(videoPath), mVideoTexture(nullptr), mShouldClose(false), 
+    : mVideoPath(PathConverter::ToRealPath(videoPath)), mVideoTexture(nullptr), mShouldClose(false), 
       mLoadError(false), mIsPlaying(false), mIsPaused(false), mInitialized(false),
-      mShowUI(true), mVideoWidth(1280), mVideoHeight(720), mPlaybackStartTime(0), 
+      mShowUI(true), mIsRawVideo(false), mShowRawVideoWarning(false),
+      mVideoWidth(1280), mVideoHeight(720), mPlaybackStartTime(0), 
       mPlaybackStartPTS(0.0), mFrameDelay(33.0) {
     
 }
@@ -34,6 +36,21 @@ void VideoPlayerScreen::Draw() {
     
     if (!mInitialized && !mLoadError) {
         InitializeVideo();
+    }
+    
+    if (mShowRawVideoWarning) {
+        Gfx::Clear(Gfx::COLOR_BLACK);
+        
+        int centerX = Gfx::SCREEN_WIDTH / 2;
+        int centerY = Gfx::SCREEN_HEIGHT / 2;
+        
+        Gfx::Print(centerX, centerY - 30, 48, Gfx::COLOR_WHITE, 
+                   "Raw Video Not Supported", Gfx::ALIGN_CENTER);
+        
+        Gfx::Print(centerX, centerY + 40, 32, Gfx::COLOR_ALT_TEXT,
+                   "Press B to go back", Gfx::ALIGN_CENTER);
+        
+        return;
     }
     
     if (mLoadError) {
@@ -88,6 +105,14 @@ void VideoPlayerScreen::Draw() {
 }
 
 bool VideoPlayerScreen::Update(Input &input) {
+    if (mShowRawVideoWarning) {
+        if (input.data.buttons_d & Input::BUTTON_B) {
+            mShouldClose = true;
+            return false;
+        }
+        return true;
+    }
+    
     if (input.data.buttons_d & Input::BUTTON_B) {
         mShouldClose = true;
         return false;
@@ -334,6 +359,16 @@ void VideoPlayerScreen::InitializeVideo() {
     }
     
     WHBLogPrintf("[PERF] InitializeVideo: Video dimensions %dx%d", mVideoWidth, mVideoHeight);
+    
+    if (mDecoder.IsRawVideo()) {
+        WHBLogPrintf("[PERF] InitializeVideo: RAW VIDEO DETECTED - Not supported");
+        mIsRawVideo = true;
+        mShowRawVideoWarning = true;
+        mDecoder.Close();
+        Uint32 initEnd = SDL_GetTicks();
+        WHBLogPrintf("[PERF] InitializeVideo: Raw video not supported (took %u ms)", initEnd - initStart);
+        return;
+    }
     
     Uint32 textureStart = SDL_GetTicks();
     mVideoTexture = SDL_CreateTexture(Gfx::GetRenderer(),

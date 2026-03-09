@@ -1,6 +1,7 @@
 #include "TextEditorScreen.hpp"
 #include "../Gfx.hpp"
 #include "../utils/Keyboard.hpp"
+#include "../filemanager/PathConverter.hpp"
 #include <fstream>
 #include <sstream>
 
@@ -19,7 +20,8 @@ TextEditorScreen::~TextEditorScreen() {
 }
 
 bool TextEditorScreen::LoadFile() {
-    std::ifstream file(mFilePath);
+    std::string realPath = PathConverter::ToRealPath(mFilePath);
+    std::ifstream file(realPath);
     if (!file.is_open()) {
         return false;
     }
@@ -40,7 +42,8 @@ bool TextEditorScreen::LoadFile() {
 }
 
 bool TextEditorScreen::SaveFile() {
-    std::ofstream file(mFilePath);
+    std::string realPath = PathConverter::ToRealPath(mFilePath);
+    std::ofstream file(realPath);
     if (!file.is_open()) {
         return false;
     }
@@ -274,7 +277,8 @@ bool TextEditorScreen::Update(Input &input) {
 }
 
 bool TextEditorScreen::SaveFileAs(const std::string& newPath) {
-    std::ofstream file(newPath);
+    std::string realPath = PathConverter::ToRealPath(newPath);
+    std::ofstream file(realPath);
     if (!file.is_open()) {
         return false;
     }

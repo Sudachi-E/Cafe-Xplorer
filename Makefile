@@ -45,13 +45,14 @@ CXXFLAGS	:= $(CFLAGS) -std=gnu++20
 ASFLAGS	:=	$(ARCH)
 LDFLAGS	=	$(ARCH) $(RPXSPECS) -Wl,-Map,$(notdir $*.map)
 
-LIBS	:=	-lSDL2_mixer -lmpg123 -lmodplug -logg -lavformat -lavcodec -lavfilter -lswscale -lavutil -lswresample -lm -lSDL2_image -lwebp -lSDL2 -lSDL2_ttf -lfreetype -lharfbuzz -lfreetype -lpng -lbz2 -lbrotlidec -lbrotlicommon -lz -lwut
+LIBS	:=	-lrpxloader -lmocha -lSDL2_mixer -lmpg123 -lmodplug -logg -lavformat -lavcodec -lavfilter -lswscale -lavutil -lswresample -lm -lSDL2_image -lwebp -lSDL2 -lSDL2_ttf -lfreetype -lharfbuzz -lfreetype -lpng -lbz2 -lbrotlidec -lbrotlicommon -lz -lwut
 
 #-------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level
 # containing include and lib
 #-------------------------------------------------------------------------------
-LIBDIRS	:= $(PORTLIBS) $(WUT_ROOT) $(WUT_ROOT)/usr
+WUMS_ROOT := $(DEVKITPRO)/wums
+LIBDIRS	:= $(PORTLIBS) $(WUT_ROOT) $(WUT_ROOT)/usr $(WUMS_ROOT)
 
 #-------------------------------------------------------------------------------
 # no real need to edit anything past this point unless you need to add additional

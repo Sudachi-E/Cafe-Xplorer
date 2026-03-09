@@ -1,4 +1,5 @@
 #include "FileManager.h"
+#include "PathConverter.hpp"
 #include "../utils/logger.h"
 #include <dirent.h>
 #include <sys/stat.h>
@@ -7,7 +8,9 @@
 #include <fstream>
 #include <whb/log.h>
 
-FileManager::FileManager() : mCurrentPath("fs:/vol/external01"), mHasMoreEntries(false), mTotalEntryCount(0) {}
+FileManager::FileManager() : mCurrentPath("/"), mHasMoreEntries(false), mTotalEntryCount(0) {
+    PathConverter::Initialize();
+}
 
 bool FileManager::ScanDirectory(const std::string& path) {
     mEntries.clear();
@@ -17,20 +20,70 @@ bool FileManager::ScanDirectory(const std::string& path) {
     
     WHBLogPrintf("Attempting to open directory: %s", path.c_str());
     
-    DIR* dir = opendir(path.c_str());
+    if (path == "/" || path.empty()) {
+        if (PathConverter::IsVirtualDirectory("/")) {
+            WHBLogPrintf("Opening virtual root directory");
+            mCurrentPath = "/";
+            
+            auto subdirs = PathConverter::GetVirtualSubdirs("/");
+            for (const auto& subdir : subdirs) {
+                FileEntry fileEntry;
+                fileEntry.name = subdir;
+                fileEntry.path = "/" + subdir;
+                fileEntry.isDirectory = true;
+                fileEntry.size = 0;
+                mEntries.push_back(fileEntry);
+            }
+            
+            mTotalEntryCount = mEntries.size();
+            WHBLogPrintf("Virtual root directory has %zu entries", mTotalEntryCount);
+            return true;
+        }
+    }
+    
+    std::string realPath = PathConverter::ToRealPath(path);
+    WHBLogPrintf("Converted path: %s -> %s", path.c_str(), realPath.c_str());
+    
+    DIR* dir = opendir(realPath.c_str());
+    
     if (!dir) {
-        WHBLogPrintf("Failed to open directory: %s", path.c_str());
+        WHBLogPrintf("Failed to open real directory: %s", realPath.c_str());
+        
+        if (PathConverter::IsVirtualDirectory(path)) {
+            WHBLogPrintf("Opening virtual directory: %s", path.c_str());
+            mCurrentPath = path;
+            
+            auto subdirs = PathConverter::GetVirtualSubdirs(path);
+            for (const auto& subdir : subdirs) {
+                FileEntry fileEntry;
+                fileEntry.name = subdir;
+                if (path == "/") {
+                    fileEntry.path = "/" + subdir;
+                } else {
+                    fileEntry.path = path + "/" + subdir;
+                }
+                fileEntry.isDirectory = true;
+                fileEntry.size = 0;
+                mEntries.push_back(fileEntry);
+            }
+            
+            mTotalEntryCount = mEntries.size();
+            WHBLogPrintf("Virtual directory has %zu entries", mTotalEntryCount);
+            return true;
+        }
+        
+        WHBLogPrintf("Not a virtual directory either, giving up");
         return false;
     }
 
-    WHBLogPrintf("Successfully opened directory: %s", path.c_str());
+    WHBLogPrintf("Successfully opened directory: %s", realPath.c_str());
     
     mCurrentPath = path;
+    WHBLogPrintf("Set current path to: %s", mCurrentPath.c_str());
     
     struct dirent* entry;
     std::vector<std::string> allEntryNames;
     while ((entry = readdir(dir)) != nullptr) {
-        // Skip . and .. entries
         if (std::string(entry->d_name) == "." || std::string(entry->d_name) == "..") {
             continue;
         }
@@ -59,8 +112,9 @@ bool FileManager::ScanDirectory(const std::string& path) {
             fileEntry.path = path + "/" + allEntryNames[i];
         }
         
+        std::string realEntryPath = PathConverter::ToRealPath(fileEntry.path);
         struct stat st;
-        if (stat(fileEntry.path.c_str(), &st) == 0) {
+        if (stat(realEntryPath.c_str(), &st) == 0) {
             fileEntry.isDirectory = S_ISDIR(st.st_mode);
             fileEntry.size = st.st_size;
         } else {
@@ -111,8 +165,9 @@ bool FileManager::LoadMoreEntries() {
             fileEntry.path = mCurrentPath + "/" + mPendingEntries[i];
         }
         
+        std::string realEntryPath = PathConverter::ToRealPath(fileEntry.path);
         struct stat st;
-        if (stat(fileEntry.path.c_str(), &st) == 0) {
+        if (stat(realEntryPath.c_str(), &st) == 0) {
             fileEntry.isDirectory = S_ISDIR(st.st_mode);
             fileEntry.size = st.st_size;
         } else {
@@ -140,20 +195,17 @@ bool FileManager::LoadMoreEntries() {
 }
 
 bool FileManager::NavigateUp() {
-    if (mCurrentPath == "fs:/vol/external01" || mCurrentPath == "fs:/vol/external01/") {
+    if (mCurrentPath == "/" || mCurrentPath.empty()) {
         return false;
     }
     
     size_t lastSlash = mCurrentPath.find_last_of('/');
-    if (lastSlash == std::string::npos) {
-        mCurrentPath = "fs:/vol/external01";
+    if (lastSlash == std::string::npos || lastSlash == 0) {
+        mCurrentPath = "/";
     } else {
-        std::string newPath = mCurrentPath.substr(0, lastSlash);
-        // Don't go above the SD card root
-        if (newPath.length() < 18) { // "fs:/vol/external01"
-            mCurrentPath = "fs:/vol/external01";
-        } else {
-            mCurrentPath = newPath;
+        mCurrentPath = mCurrentPath.substr(0, lastSlash);
+        if (mCurrentPath.empty()) {
+            mCurrentPath = "/";
         }
     }
     
@@ -163,10 +215,13 @@ bool FileManager::NavigateUp() {
 bool FileManager::DeleteEntry(const std::string& path, bool isDirectory) {
     WHBLogPrintf("Attempting to delete: %s (isDir: %d)", path.c_str(), isDirectory);
 
+    std::string realPath = PathConverter::ToRealPath(path);
+    WHBLogPrintf("Real path for deletion: %s", realPath.c_str());
+
     if (isDirectory) {
-        DIR* dir = opendir(path.c_str());
+        DIR* dir = opendir(realPath.c_str());
         if (!dir) {
-            WHBLogPrintf("Failed to open directory for deletion: %s", path.c_str());
+            WHBLogPrintf("Failed to open directory for deletion: %s", realPath.c_str());
             return false;
         }
 
@@ -182,9 +237,10 @@ bool FileManager::DeleteEntry(const std::string& path, bool isDirectory) {
             }
             entryPath += entry->d_name;
 
+            std::string realEntryPath = PathConverter::ToRealPath(entryPath);
             struct stat st;
             bool entryIsDir = false;
-            if (stat(entryPath.c_str(), &st) == 0) {
+            if (stat(realEntryPath.c_str(), &st) == 0) {
                 entryIsDir = S_ISDIR(st.st_mode);
             }
 
@@ -195,13 +251,13 @@ bool FileManager::DeleteEntry(const std::string& path, bool isDirectory) {
         }
         closedir(dir);
 
-        if (rmdir(path.c_str()) != 0) {
-            WHBLogPrintf("Failed to delete directory: %s", path.c_str());
+        if (rmdir(realPath.c_str()) != 0) {
+            WHBLogPrintf("Failed to delete directory: %s", realPath.c_str());
             return false;
         }
     } else {
-        if (remove(path.c_str()) != 0) {
-            WHBLogPrintf("Failed to delete file: %s", path.c_str());
+        if (remove(realPath.c_str()) != 0) {
+            WHBLogPrintf("Failed to delete file: %s", realPath.c_str());
             return false;
         }
     }
@@ -213,8 +269,9 @@ bool FileManager::DeleteEntry(const std::string& path, bool isDirectory) {
 bool FileManager::CreateDirectory(const std::string& path) {
     WHBLogPrintf("Attempting to create directory: %s", path.c_str());
     
-    if (mkdir(path.c_str(), 0777) != 0) {
-        WHBLogPrintf("Failed to create directory: %s", path.c_str());
+    std::string realPath = PathConverter::ToRealPath(path);
+    if (mkdir(realPath.c_str(), 0777) != 0) {
+        WHBLogPrintf("Failed to create directory: %s", realPath.c_str());
         return false;
     }
     
@@ -239,15 +296,18 @@ bool FileManager::PasteEntry(const std::string& sourcePath, const std::string& d
         return false;
     }
     
+    std::string realSourcePath = PathConverter::ToRealPath(sourcePath);
+    std::string realDestPath = PathConverter::ToRealPath(destPath);
+    
     if (isDirectory) {
-        if (mkdir(destPath.c_str(), 0777) != 0) {
-            WHBLogPrintf("Failed to create destination directory: %s", destPath.c_str());
+        if (mkdir(realDestPath.c_str(), 0777) != 0) {
+            WHBLogPrintf("Failed to create destination directory: %s", realDestPath.c_str());
             return false;
         }
         
-        DIR* dir = opendir(sourcePath.c_str());
+        DIR* dir = opendir(realSourcePath.c_str());
         if (!dir) {
-            WHBLogPrintf("Failed to open source directory: %s", sourcePath.c_str());
+            WHBLogPrintf("Failed to open source directory: %s", realSourcePath.c_str());
             return false;
         }
         
@@ -264,9 +324,10 @@ bool FileManager::PasteEntry(const std::string& sourcePath, const std::string& d
             }
             entrySourcePath += entry->d_name;
             
+            std::string realEntrySourcePath = PathConverter::ToRealPath(entrySourcePath);
             struct stat st;
             bool entryIsDir = false;
-            if (stat(entrySourcePath.c_str(), &st) == 0) {
+            if (stat(realEntrySourcePath.c_str(), &st) == 0) {
                 entryIsDir = S_ISDIR(st.st_mode);
             }
             
@@ -279,22 +340,22 @@ bool FileManager::PasteEntry(const std::string& sourcePath, const std::string& d
         
         return success;
     } else {
-        std::ifstream src(sourcePath.c_str(), std::ios::binary);
+        std::ifstream src(realSourcePath.c_str(), std::ios::binary);
         if (!src.is_open()) {
-            WHBLogPrintf("Failed to open source file: %s", sourcePath.c_str());
+            WHBLogPrintf("Failed to open source file: %s", realSourcePath.c_str());
             return false;
         }
         
-        std::ofstream dst(destPath.c_str(), std::ios::binary);
+        std::ofstream dst(realDestPath.c_str(), std::ios::binary);
         if (!dst.is_open()) {
-            WHBLogPrintf("Failed to create destination file: %s", destPath.c_str());
+            WHBLogPrintf("Failed to create destination file: %s", realDestPath.c_str());
             return false;
         }
         
         dst << src.rdbuf();
         
         if (!dst.good()) {
-            WHBLogPrintf("Error writing to destination file: %s", destPath.c_str());
+            WHBLogPrintf("Error writing to destination file: %s", realDestPath.c_str());
             return false;
         }
         
@@ -320,7 +381,10 @@ bool FileManager::MoveEntry(const std::string& sourcePath, const std::string& de
         return false;
     }
     
-    if (rename(sourcePath.c_str(), destPath.c_str()) == 0) {
+    std::string realSourcePath = PathConverter::ToRealPath(sourcePath);
+    std::string realDestPath = PathConverter::ToRealPath(destPath);
+    
+    if (rename(realSourcePath.c_str(), realDestPath.c_str()) == 0) {
         WHBLogPrintf("Successfully moved using rename: %s to %s", sourcePath.c_str(), destPath.c_str());
         return true;
     }
@@ -362,7 +426,10 @@ bool FileManager::RenameEntry(const std::string& oldPath, const std::string& new
         return false;
     }
 
-    if (rename(oldPath.c_str(), newPath.c_str()) != 0) {
+    std::string realOldPath = PathConverter::ToRealPath(oldPath);
+    std::string realNewPath = PathConverter::ToRealPath(newPath);
+
+    if (rename(realOldPath.c_str(), realNewPath.c_str()) != 0) {
         WHBLogPrintf("Failed to rename: %s to %s", oldPath.c_str(), newPath.c_str());
         return false;
     }

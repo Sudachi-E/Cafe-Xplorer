@@ -37,6 +37,8 @@ public:
     double GetFrameRate() const;
     bool HasAudio() const { return mAudioStreamIndex >= 0; }
     bool HasVideo() const { return mVideoStreamIndex >= 0; }
+    bool IsRawVideo() const { return mVideoCodecCtx && mVideoCodecCtx->codec_id == AV_CODEC_ID_RAWVIDEO; }
+    AVCodecID GetVideoCodecID() const { return mVideoCodecCtx ? mVideoCodecCtx->codec_id : AV_CODEC_ID_NONE; }
     
     void StartAudio();
     void StopAudio();
