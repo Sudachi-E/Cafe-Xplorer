@@ -119,6 +119,17 @@ void FilesystemManager::UnmountAllFilesystems() {
     Mocha_UnmountFS("storage_usb");
 }
 
+void FilesystemManager::Shutdown() {
+    if (!sMochaInitialized) {
+        return;
+    }
+    
+    WHBLogPrintf("Deinitializing Mocha...");
+    Mocha_DeInitLibrary();
+    sMochaInitialized = false;
+    WHBLogPrintf("Mocha deinitialized");
+}
+
 bool FilesystemManager::IsMochaInitialized() {
     return sMochaInitialized;
 }

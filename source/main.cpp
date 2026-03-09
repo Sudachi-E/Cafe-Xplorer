@@ -30,7 +30,7 @@ int main(int argc, char const *argv[]) {
     
     PathConverter::AddRootDirectory("fs");
     
-         // mount additional filesystems if full access is enabled
+    //     mount additional filesystems if full access is enabled
     if (Settings::GetFullFilesystemAccess()) {
         WHBLogPrintf("Full filesystem access enabled, mounting all storage");
         FilesystemManager::MountAllFilesystems();
@@ -90,6 +90,7 @@ int main(int argc, char const *argv[]) {
                     break;
                 } else {
                     SYSLaunchMenu();
+                    break;
                 }
             }
         }
@@ -101,16 +102,30 @@ int main(int argc, char const *argv[]) {
         Gfx::Render();
     }
 
+    WHBLogPrintf("Starting cleanup sequence...");
+    
     fileManagerScreen.reset();
+    WHBLogPrintf("FileManagerScreen destroyed");
+    
     Keyboard::Shutdown();
+    WHBLogPrintf("Keyboard shutdown complete");
+    
     Gfx::Shutdown();
+    WHBLogPrintf("Graphics shutdown complete");
+    
+    KPADShutdown();
+    WHBLogPrintf("KPAD shutdown complete");
     
     if (FilesystemManager::IsMochaInitialized()) {
         FilesystemManager::UnmountAllFilesystems();
         WHBLogPrintf("Filesystems unmounted");
+        FilesystemManager::Shutdown();
+        WHBLogPrintf("FilesystemManager shutdown complete");
     }
     
     WHBProcShutdown();
+    WHBLogPrintf("WHBProc shutdown complete");
+    
     deinitLogging();
     
     return 0;
