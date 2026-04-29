@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <algorithm>
 #include <fstream>
+#include <vector>
 #include <whb/log.h>
 
 FileManager::FileManager() : mCurrentPath("/"), mHasMoreEntries(false), mTotalEntryCount(0) {
@@ -281,84 +282,134 @@ bool FileManager::CreateDirectory(const std::string& path) {
 
 bool FileManager::PasteEntry(const std::string& sourcePath, const std::string& destDir, bool isDirectory) {
     WHBLogPrintf("Attempting to paste: %s to %s (isDir: %d)", sourcePath.c_str(), destDir.c_str(), isDirectory);
-    
+
+    // Calculate total size upfront so progress is reported
+    std::string realSourcePath = PathConverter::ToRealPath(sourcePath);
+    uint64_t totalBytes = CalculateTotalSize(realSourcePath);
+    WHBLogPrintf("Total bytes to copy: %llu", (unsigned long long)totalBytes);
+
+    uint64_t bytesCopied = 0;
+    return PasteEntryInternal(sourcePath, destDir, isDirectory, bytesCopied, totalBytes);
+}
+
+uint64_t FileManager::CalculateTotalSize(const std::string& realPath) {
+    struct stat st;
+    if (stat(realPath.c_str(), &st) != 0) {
+        return 0;
+    }
+
+    if (S_ISDIR(st.st_mode)) {
+        uint64_t total = 0;
+        DIR* dir = opendir(realPath.c_str());
+        if (!dir) return 0;
+
+        struct dirent* entry;
+        while ((entry = readdir(dir)) != nullptr) {
+            if (std::string(entry->d_name) == "." || std::string(entry->d_name) == "..") continue;
+            std::string childPath = realPath;
+            if (childPath.back() != '/') childPath += "/";
+            childPath += entry->d_name;
+            total += CalculateTotalSize(childPath);
+        }
+        closedir(dir);
+        return total;
+    } else {
+        return static_cast<uint64_t>(st.st_size);
+    }
+}
+
+bool FileManager::PasteEntryInternal(const std::string& sourcePath, const std::string& destDir,
+                                     bool isDirectory, uint64_t& bytesCopied, uint64_t totalBytes) {
     size_t lastSlash = sourcePath.find_last_of('/');
     std::string filename = (lastSlash != std::string::npos) ? sourcePath.substr(lastSlash + 1) : sourcePath;
-    
+
     std::string destPath = destDir;
-    if (destPath.back() != '/') {
-        destPath += "/";
-    }
+    if (destPath.back() != '/') destPath += "/";
     destPath += filename;
-    
+
     if (sourcePath == destPath) {
         WHBLogPrintf("Source and destination are the same, skipping");
         return false;
     }
-    
+
     std::string realSourcePath = PathConverter::ToRealPath(sourcePath);
-    std::string realDestPath = PathConverter::ToRealPath(destPath);
-    
+    std::string realDestPath   = PathConverter::ToRealPath(destPath);
+
     if (isDirectory) {
         if (mkdir(realDestPath.c_str(), 0777) != 0) {
             WHBLogPrintf("Failed to create destination directory: %s", realDestPath.c_str());
             return false;
         }
-        
+
         DIR* dir = opendir(realSourcePath.c_str());
         if (!dir) {
             WHBLogPrintf("Failed to open source directory: %s", realSourcePath.c_str());
             return false;
         }
-        
+
         struct dirent* entry;
         bool success = true;
         while ((entry = readdir(dir)) != nullptr) {
-            if (std::string(entry->d_name) == "." || std::string(entry->d_name) == "..") {
-                continue;
-            }
-            
+            if (std::string(entry->d_name) == "." || std::string(entry->d_name) == "..") continue;
+
             std::string entrySourcePath = sourcePath;
-            if (sourcePath.back() != '/') {
-                entrySourcePath += "/";
-            }
+            if (sourcePath.back() != '/') entrySourcePath += "/";
             entrySourcePath += entry->d_name;
-            
+
             std::string realEntrySourcePath = PathConverter::ToRealPath(entrySourcePath);
             struct stat st;
             bool entryIsDir = false;
             if (stat(realEntrySourcePath.c_str(), &st) == 0) {
                 entryIsDir = S_ISDIR(st.st_mode);
             }
-            
-            if (!PasteEntry(entrySourcePath, destPath, entryIsDir)) {
+
+            if (!PasteEntryInternal(entrySourcePath, destPath, entryIsDir, bytesCopied, totalBytes)) {
                 success = false;
                 break;
             }
         }
         closedir(dir);
-        
         return success;
     } else {
+        // Copy file in chunks so progress is reported correctly
+        static const size_t CHUNK_SIZE = 256 * 1024;
+
         std::ifstream src(realSourcePath.c_str(), std::ios::binary);
         if (!src.is_open()) {
             WHBLogPrintf("Failed to open source file: %s", realSourcePath.c_str());
             return false;
         }
-        
+
         std::ofstream dst(realDestPath.c_str(), std::ios::binary);
         if (!dst.is_open()) {
             WHBLogPrintf("Failed to create destination file: %s", realDestPath.c_str());
             return false;
         }
-        
-        dst << src.rdbuf();
-        
-        if (!dst.good()) {
+
+        std::vector<char> buffer(CHUNK_SIZE);
+        while (src) {
+            src.read(buffer.data(), CHUNK_SIZE);
+            std::streamsize bytesRead = src.gcount();
+            if (bytesRead <= 0) break;
+
+            dst.write(buffer.data(), bytesRead);
+            if (!dst.good()) {
+                WHBLogPrintf("Error writing to destination file: %s", realDestPath.c_str());
+                return false;
+            }
+
+            bytesCopied += static_cast<uint64_t>(bytesRead);
+
+            if (mCopyProgressCallback) {
+                mCopyProgressCallback(bytesCopied, totalBytes);
+            }
+        }
+
+        if (!dst.good() && !dst.eof()) {
             WHBLogPrintf("Error writing to destination file: %s", realDestPath.c_str());
             return false;
         }
-        
+
         WHBLogPrintf("Successfully copied file: %s to %s", sourcePath.c_str(), destPath.c_str());
         return true;
     }

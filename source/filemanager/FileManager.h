@@ -30,6 +30,11 @@ public:
     
     void SetProgressCallback(std::function<void()> callback) { mProgressCallback = callback; }
 
+    using CopyProgressCallback = std::function<void(uint64_t, uint64_t)>;
+    void SetCopyProgressCallback(CopyProgressCallback callback) { mCopyProgressCallback = callback; }
+
+    static uint64_t CalculateTotalSize(const std::string& realPath);
+
 private:
     std::vector<FileEntry> mEntries;
     std::string mCurrentPath;
@@ -40,4 +45,9 @@ private:
     static const size_t ENTRIES_PER_LOAD = 50;  // Load 50 entries at a time
     
     std::function<void()> mProgressCallback;
+    CopyProgressCallback mCopyProgressCallback;
+
+    // recursive paste for tracking cumulative bytes
+    bool PasteEntryInternal(const std::string& sourcePath, const std::string& destDir,
+                            bool isDirectory, uint64_t& bytesCopied, uint64_t totalBytes);
 };

@@ -19,7 +19,7 @@
 #include <sysapp/launch.h>
 #include <rpxloader/rpxloader.h>
 
-FileManagerScreen::FileManagerScreen() : mSelectedIndex(0), mScrollOffset(0), mShowContextMenu(false), mContextMenuSelection(0), mClipboardIsDirectory(false), mClipboardIsMove(false), mShowDeletionModal(false), mShowLoadingModal(false), mLoadingStartTime(0), mShowLaunchConfirmModal(false), mLaunchModalSelection(0), mLastAnalogScrollTime(0) {
+FileManagerScreen::FileManagerScreen() : mSelectedIndex(0), mScrollOffset(0), mShowContextMenu(false), mContextMenuSelection(0), mClipboardIsDirectory(false), mClipboardIsMove(false), mShowDeletionModal(false), mShowLoadingModal(false), mLoadingStartTime(0), mShowLaunchConfirmModal(false), mLaunchModalSelection(0), mLastAnalogScrollTime(0), mShowCopyProgressModal(false), mCopyProgressBytes(0), mCopyProgressTotal(0) {
     Settings::Initialize();
     
     if (Settings::GetFullFilesystemAccess()) {
@@ -133,6 +133,10 @@ void FileManagerScreen::Draw() {
     
     if (mShowLaunchConfirmModal) {
         DrawLaunchConfirmModal();
+    }
+    
+    if (mShowCopyProgressModal) {
+        DrawCopyProgressModal();
     }
 }
 
@@ -262,13 +266,40 @@ bool FileManagerScreen::Update(Input &input) {
                 }
             } else if (mContextMenuSelection == 4) {
                 if (!mClipboardPath.empty()) {
+                    size_t lastSlash = mClipboardPath.find_last_of('/');
+                    mCopyProgressName = (lastSlash != std::string::npos)
+                        ? mClipboardPath.substr(lastSlash + 1)
+                        : mClipboardPath;
+                    mCopyProgressBytes = 0;
+                    mCopyProgressTotal = 0;
+                    mShowCopyProgressModal = true;
+
+                    Draw();
+                    Gfx::Render();
+
                     bool success = false;
                     if (mClipboardIsMove) {
+                        mFileManager.SetCopyProgressCallback([this](uint64_t copied, uint64_t total) {
+                            mCopyProgressBytes = copied;
+                            mCopyProgressTotal = total;
+                            Draw();
+                            Gfx::Render();
+                        });
                         success = mFileManager.MoveEntry(mClipboardPath, mFileManager.GetCurrentPath(), mClipboardIsDirectory);
+                        mFileManager.SetCopyProgressCallback(nullptr);
                     } else {
+                        mFileManager.SetCopyProgressCallback([this](uint64_t copied, uint64_t total) {
+                            mCopyProgressBytes = copied;
+                            mCopyProgressTotal = total;
+                            Draw();
+                            Gfx::Render();
+                        });
                         success = mFileManager.PasteEntry(mClipboardPath, mFileManager.GetCurrentPath(), mClipboardIsDirectory);
+                        mFileManager.SetCopyProgressCallback(nullptr);
                     }
-                    
+
+                    mShowCopyProgressModal = false;
+
                     if (success) {
                         mClipboardPath.clear();
                         mClipboardIsDirectory = false;
@@ -673,6 +704,70 @@ void FileManagerScreen::DrawLoadingModal() {
     
     Gfx::Print(modalX + modalWidth / 2, modalY + modalHeight / 2 + 30, 36, 
                Gfx::COLOR_ALT_TEXT, mLoadingPath, Gfx::ALIGN_CENTER);
+}
+
+void FileManagerScreen::DrawCopyProgressModal() {
+    Gfx::DrawRectFilled(0, 0, Gfx::SCREEN_WIDTH, Gfx::SCREEN_HEIGHT, SDL_Color{0, 0, 0, 180});
+
+    int modalWidth  = 900;
+    int modalHeight = 280;
+    int modalX = (Gfx::SCREEN_WIDTH  - modalWidth)  / 2;
+    int modalY = (Gfx::SCREEN_HEIGHT - modalHeight) / 2;
+    int borderWidth = 4;
+
+    Gfx::DrawRectFilled(modalX, modalY, modalWidth, modalHeight, Gfx::COLOR_ALT_BACKGROUND);
+    Gfx::DrawRectFilled(modalX,                          modalY,                           modalWidth,  borderWidth,  Gfx::COLOR_HIGHLIGHTED); // Top
+    Gfx::DrawRectFilled(modalX,                          modalY + modalHeight - borderWidth, modalWidth,  borderWidth,  Gfx::COLOR_HIGHLIGHTED); // Bottom
+    Gfx::DrawRectFilled(modalX,                          modalY,                           borderWidth, modalHeight,  Gfx::COLOR_HIGHLIGHTED); // Left
+    Gfx::DrawRectFilled(modalX + modalWidth - borderWidth, modalY,                         borderWidth, modalHeight,  Gfx::COLOR_HIGHLIGHTED); // Right
+
+    std::string title = mClipboardIsMove ? "Moving" : "Copying";
+    Gfx::Print(modalX + modalWidth / 2, modalY + 40, 48,
+               Gfx::COLOR_WHITE, title, Gfx::ALIGN_CENTER);
+
+    // Filename
+    std::string displayName = mCopyProgressName;
+    if (Gfx::GetTextWidth(34, displayName) > modalWidth - 80) {
+        while (!displayName.empty() && Gfx::GetTextWidth(34, displayName + "...") > modalWidth - 80) {
+            displayName.pop_back();
+        }
+        displayName += "...";
+    }
+    Gfx::Print(modalX + modalWidth / 2, modalY + 95, 34,
+               Gfx::COLOR_ALT_TEXT, displayName, Gfx::ALIGN_CENTER);
+
+    // Progress bar
+    int barMargin  = 50;
+    int barY       = modalY + 150;
+    int barHeight  = 36;
+    int barWidth   = modalWidth - barMargin * 2;
+    int barX       = modalX + barMargin;
+
+    // Bar background (dark track)
+    Gfx::DrawRectFilled(barX, barY, barWidth, barHeight, Gfx::COLOR_BARS);
+
+    // Filled portion
+    float progress = (mCopyProgressTotal > 0)
+        ? static_cast<float>(mCopyProgressBytes) / static_cast<float>(mCopyProgressTotal)
+        : 0.0f;
+    if (progress > 1.0f) progress = 1.0f;
+
+    int filledWidth = static_cast<int>(barWidth * progress);
+    if (filledWidth > 0) {
+        Gfx::DrawRectFilled(barX, barY, filledWidth, barHeight, Gfx::COLOR_HIGHLIGHTED);
+    }
+
+    // Bar border
+    Gfx::DrawRectFilled(barX,                    barY,                    barWidth, 2,         Gfx::COLOR_WHITE); // Top
+    Gfx::DrawRectFilled(barX,                    barY + barHeight - 2,    barWidth, 2,         Gfx::COLOR_WHITE); // Bottom
+    Gfx::DrawRectFilled(barX,                    barY,                    2,        barHeight,  Gfx::COLOR_WHITE); // Left
+    Gfx::DrawRectFilled(barX + barWidth - 2,     barY,                    2,        barHeight,  Gfx::COLOR_WHITE); // Right
+
+    // Percentage label
+    int percent = static_cast<int>(progress * 100.0f);
+    std::string percentStr = std::to_string(percent) + "%";
+    Gfx::Print(modalX + modalWidth / 2, barY + barHeight + 28, 36,
+               Gfx::COLOR_ALT_TEXT, percentStr, Gfx::ALIGN_CENTER);
 }
 
 bool FileManagerScreen::ScanDirectoryWithModal(const std::string& path) {

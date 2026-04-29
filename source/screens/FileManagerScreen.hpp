@@ -43,6 +43,12 @@ private:
     int mLaunchModalSelection;
     uint64_t mLastAnalogScrollTime;
     
+    // Copy progress modal state
+    bool mShowCopyProgressModal;
+    uint64_t mCopyProgressBytes;
+    uint64_t mCopyProgressTotal;
+    std::string mCopyProgressName;
+    
     static std::string FormatSize(size_t bytes);
     static bool IsTextFile(const std::string& filename);
     static bool IsImageFile(const std::string& filename);
@@ -54,6 +60,7 @@ private:
     void DrawDeletionModal();
     void DrawLoadingModal();
     void DrawLaunchConfirmModal();
+    void DrawCopyProgressModal();
     void CreateNewFile(const std::string& filename);
     void CreateNewFolder(const std::string& foldername);
     bool ScanDirectoryWithModal(const std::string& path);
