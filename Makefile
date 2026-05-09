@@ -28,7 +28,7 @@ include $(DEVKITPRO)/wut/share/wut_rules
 #-------------------------------------------------------------------------------
 TARGET		:=	Cafe-Xplorer
 BUILD		:=	build
-SOURCES		:=	source source/screens source/input source/utils source/filemanager source/video
+SOURCES		:=	source source/screens source/input source/utils source/filemanager source/video source/audio
 DATA		:=	data
 INCLUDES	:=	source include source/screens
 

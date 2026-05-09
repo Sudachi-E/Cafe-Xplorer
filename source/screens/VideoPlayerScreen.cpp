@@ -8,7 +8,8 @@ VideoPlayerScreen::VideoPlayerScreen(const std::string& videoPath)
       mLoadError(false), mIsPlaying(false), mIsPaused(false), mInitialized(false),
       mShowUI(true), mIsRawVideo(false), mShowRawVideoWarning(false),
       mVideoWidth(1280), mVideoHeight(720), mPlaybackStartTime(0), 
-      mPlaybackStartPTS(0.0), mFrameDelay(33.0) {
+      mPlaybackStartPTS(0.0), mFrameDelay(33.0),
+      mWallClockStartTime(0), mWallClockStartPTS(0.0) {
     
 }
 
@@ -66,7 +67,11 @@ void VideoPlayerScreen::Draw() {
         } else if (mVideoHeight == 3) {
             snprintf(errorMsg, sizeof(errorMsg), "No video stream found");
         } else if (mVideoHeight == 4) {
-            snprintf(errorMsg, sizeof(errorMsg), "Codec not found (ID: %d)", mVideoWidth);
+            snprintf(errorMsg, sizeof(errorMsg), "Unsupported codec: %s (ID: %d)",
+                     mDecoder.GetFailedCodecName().empty()
+                         ? "unknown"
+                         : mDecoder.GetFailedCodecName().c_str(),
+                     mVideoWidth);
         } else if (mVideoHeight == 5) {
             snprintf(errorMsg, sizeof(errorMsg), "Failed to allocate codec context");
         } else if (mVideoHeight == 6) {
@@ -126,7 +131,8 @@ bool VideoPlayerScreen::Update(Input &input) {
             double videoPTS = mDecoder.GetCurrentTime();
             double audioPTS = mDecoder.GetAudioTime();
             mDecoder.StartAudio();
-            WHBLogPrintf("[SYNC] PLAY vPTS=%.2f aPTS=%.2f", videoPTS, audioPTS);
+            const char* syncMode = mDecoder.HasAudio() ? "A-V" : "WALL-CLOCK";
+            WHBLogPrintf("[SYNC] PLAY (%s) vPTS=%.2f aPTS=%.2f", syncMode, videoPTS, audioPTS);
         } else {
             mIsPaused = !mIsPaused;
             if (!mIsPaused) {
@@ -134,7 +140,8 @@ bool VideoPlayerScreen::Update(Input &input) {
                 double videoPTS = mDecoder.GetCurrentTime();
                 double audioPTS = mDecoder.GetAudioTime();
                 mDecoder.PauseAudio(false);
-                WHBLogPrintf("[SYNC] RESUME vPTS=%.2f aPTS=%.2f", videoPTS, audioPTS);
+                const char* syncMode = mDecoder.HasAudio() ? "A-V" : "WALL-CLOCK";
+                WHBLogPrintf("[SYNC] RESUME (%s) vPTS=%.2f aPTS=%.2f", syncMode, videoPTS, audioPTS);
             } else {
                 mShowUI = true;  // Show UI when pausing
                 mDecoder.PauseAudio(true);
@@ -148,6 +155,7 @@ bool VideoPlayerScreen::Update(Input &input) {
         double newTime = mDecoder.GetCurrentTime() - 10.0;
         if (newTime < 0) newTime = 0;
         mDecoder.Seek(newTime);
+        mWallClockStartTime = 0; // Reset wall-clock sync after seek (fixes AVI seek freezing)
         Uint32 seekEnd = SDL_GetTicks();
         WHBLogPrintf("[SYNC] Seek back took %ums", seekEnd - seekStart);
     }
@@ -157,6 +165,7 @@ bool VideoPlayerScreen::Update(Input &input) {
         double newTime = mDecoder.GetCurrentTime() + 10.0;
         if (newTime > mDecoder.GetDuration()) newTime = mDecoder.GetDuration();
         mDecoder.Seek(newTime);
+        mWallClockStartTime = 0; // Reset wall-clock sync after seek (fixes AVI seek freezing)
         Uint32 seekEnd = SDL_GetTicks();
         WHBLogPrintf("[SYNC] Seek forward took %ums", seekEnd - seekStart);
     }
@@ -169,13 +178,6 @@ bool VideoPlayerScreen::Update(Input &input) {
 }
 
 void VideoPlayerScreen::DrawPlaybackControls() {
-    const char* statusText = "Not Playing";
-    if (mIsPlaying) {
-        statusText = mIsPaused ? "Paused" : "Playing";
-    }
-    
-    Gfx::Print(40, Gfx::SCREEN_HEIGHT - 100, 36, Gfx::COLOR_WHITE, 
-               statusText, Gfx::ALIGN_LEFT);
     
     char timeStr[64];
     snprintf(timeStr, sizeof(timeStr), "%.1f / %.1f s", 
@@ -240,7 +242,7 @@ void VideoPlayerScreen::UpdatePlayback() {
     
     double videoPTS = mDecoder.GetCurrentTime();
     double audioPTS = mDecoder.GetAudioTime();
-    double avDrift = videoPTS - audioPTS;
+    double avDrift = 0.0;
     
     Uint32 currentTime = SDL_GetTicks();
     Uint32 timeSinceLastFrame = currentTime - lastFrameTime;
@@ -249,26 +251,50 @@ void VideoPlayerScreen::UpdatePlayback() {
     bool dropFrame = false;
     int framesToDecode = 1;
     
-    if (avDrift < -0.1) {
-        shouldDecode = true;
-        framesCatchup++;
-        
-        if (avDrift < -0.2) {
-            framesToDecode = (avDrift < -0.3) ? 3 : 2;
-            dropFrame = true;
+    // For video-only files, use wall-clock time for sync instead of audio PTS
+    if (!mDecoder.HasAudio()) {
+        // Initialize wall-clock timing on first frame
+        if (mWallClockStartTime == 0) {
+            mWallClockStartTime = currentTime;
+            mWallClockStartPTS = videoPTS;
         }
-    } else if (avDrift > 0.1) {
-        double compensatedDelay = mFrameDelay + (avDrift * 1000.0);
-        if (timeSinceLastFrame >= (Uint32)compensatedDelay) {
+        
+        // Calculate expected video time based on wall-clock
+        double elapsedWallTime = (currentTime - mWallClockStartTime) / 1000.0;
+        double expectedVideoPTS = mWallClockStartPTS + elapsedWallTime;
+        avDrift = videoPTS - expectedVideoPTS;
+        
+        // Simple frame-rate based timing for video-only
+        if (timeSinceLastFrame >= (Uint32)mFrameDelay) {
             shouldDecode = true;
         } else {
             framesSkipped++;
         }
     } else {
-        if (timeSinceLastFrame >= (Uint32)mFrameDelay) {
+        // Audio-video sync logic
+        avDrift = videoPTS - audioPTS;
+        
+        if (avDrift < -0.1) {
             shouldDecode = true;
+            framesCatchup++;
+            
+            if (avDrift < -0.2) {
+                framesToDecode = (avDrift < -0.3) ? 3 : 2;
+                dropFrame = true;
+            }
+        } else if (avDrift > 0.1) {
+            double compensatedDelay = mFrameDelay + (avDrift * 1000.0);
+            if (timeSinceLastFrame >= (Uint32)compensatedDelay) {
+                shouldDecode = true;
+            } else {
+                framesSkipped++;
+            }
         } else {
-            framesSkipped++;
+            if (timeSinceLastFrame >= (Uint32)mFrameDelay) {
+                shouldDecode = true;
+            } else {
+                framesSkipped++;
+            }
         }
     }
     
@@ -283,6 +309,8 @@ void VideoPlayerScreen::UpdatePlayback() {
                 mIsPlaying = false;
                 mDecoder.StopAudio();
                 WHBLogPrintf("[SYNC] End of video");
+                // Reset wall-clock timing for next playback
+                mWallClockStartTime = 0;
                 return;
             }
             
@@ -293,8 +321,10 @@ void VideoPlayerScreen::UpdatePlayback() {
             
             if (i < framesToDecode - 1) {
                 videoPTS = mDecoder.GetCurrentTime();
-                audioPTS = mDecoder.GetAudioTime();
-                avDrift = videoPTS - audioPTS;
+                if (mDecoder.HasAudio()) {
+                    audioPTS = mDecoder.GetAudioTime();
+                    avDrift = videoPTS - audioPTS;
+                }
             }
         }
         
@@ -313,8 +343,9 @@ void VideoPlayerScreen::UpdatePlayback() {
     if ((now - lastLogTime) > 2000) {
         double avgFrameTime = frameTimings > 0 ? (double)totalFrameTime / frameTimings : 0;
         
-        WHBLogPrintf("[SYNC] vPTS=%.2f aPTS=%.2f drift=%.0fms decoded=%d skipped=%d dropped=%d catchup=%d", 
-                     videoPTS, audioPTS, avDrift * 1000.0, framesDecoded, framesSkipped, framesDropped, framesCatchup);
+        const char* syncMode = mDecoder.HasAudio() ? "A-V" : "WALL-CLOCK";
+        WHBLogPrintf("[SYNC] %s mode: vPTS=%.2f aPTS=%.2f drift=%.0fms decoded=%d skipped=%d dropped=%d catchup=%d", 
+                     syncMode, videoPTS, audioPTS, avDrift * 1000.0, framesDecoded, framesSkipped, framesDropped, framesCatchup);
         WHBLogPrintf("[SYNC] Timing: update=%ums avgFrame=%.1fms targetDelay=%.1fms", 
                      updateDuration, avgFrameTime, mFrameDelay);
         

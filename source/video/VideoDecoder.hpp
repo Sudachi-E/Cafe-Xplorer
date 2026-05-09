@@ -39,6 +39,7 @@ public:
     bool HasVideo() const { return mVideoStreamIndex >= 0; }
     bool IsRawVideo() const { return mVideoCodecCtx && mVideoCodecCtx->codec_id == AV_CODEC_ID_RAWVIDEO; }
     AVCodecID GetVideoCodecID() const { return mVideoCodecCtx ? mVideoCodecCtx->codec_id : AV_CODEC_ID_NONE; }
+    const std::string& GetFailedCodecName() const { return mFailedCodecName; }
     
     void StartAudio();
     void StopAudio();
@@ -87,6 +88,8 @@ private:
     SDL_atomic_t mReaderThreadRunning;
     static int PacketReaderThreadFunc(void* data);
     void PacketReaderLoop();
-    
+
+    std::string mFailedCodecName;
+
     FILE* mFile;
 };

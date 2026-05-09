@@ -1,5 +1,4 @@
 #pragma once
-
 #include "../Screen.hpp"
 #include "../video/VideoDecoder.hpp"
 #include <SDL2/SDL.h>
@@ -40,4 +39,7 @@ private:
     Uint32 mPlaybackStartTime;
     double mPlaybackStartPTS;
     double mFrameDelay;
+    
+    Uint32 mWallClockStartTime;
+    double mWallClockStartPTS;
 };

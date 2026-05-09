@@ -29,13 +29,13 @@ A multi-purpose file manager for the Nintendo Wii U.
 - Reset zoom and position
 
 ### Video Player
-- Play MP4, AVI, MKV, and MOV video files (WIP)
+- Play MP4, AVI, MKV, and MOV video files
 - Playback controls (Play/Pause)
 - Seek forward/backward (10 seconds)
 - Progress bar with time display
 
 ### Audio Player
-- Play MP3 audio files (Other codecs are planned)
+- Play MP3, WAV, OGG, and FLAC audio files
 - Playback controls (Play/Pause)
 - Seek forward/backward (10 seconds)
 - Progress bar with time display

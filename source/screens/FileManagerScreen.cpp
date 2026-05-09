@@ -536,7 +536,8 @@ bool FileManagerScreen::IsAudioFile(const std::string& filename) {
     std::string lower = filename;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
     
-    return lower.ends_with(".mp3");
+    return lower.ends_with(".mp3") || lower.ends_with(".wav") ||
+           lower.ends_with(".ogg") || lower.ends_with(".flac");
 }
 
 bool FileManagerScreen::IsRPXFile(const std::string& filename) {

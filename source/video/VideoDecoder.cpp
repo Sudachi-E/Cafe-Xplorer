@@ -263,7 +263,7 @@ bool VideoDecoder::Open(const std::string& path) {
     if (mVideoStreamIndex == -1 && mAudioStreamIndex == -1) {
         WHBLogPrintf("VideoDecoder::Open: FAILED - No video or audio stream found");
         mWidth = -3;
-        mHeight = 3; // Signal: no video or audio stream
+        mHeight = 3;
         Close();
         return false;
     }
@@ -295,6 +295,7 @@ bool VideoDecoder::Open(const std::string& path) {
             codec = avcodec_find_decoder(codecParams->codec_id);
         }
         
+        // Logging that will help with future codecs to be added if not available
         if (!codec) {
             WHBLogPrintf("===========================================");
             WHBLogPrintf("VideoDecoder::Open: ✗✗✗ CODEC NOT FOUND ✗✗✗");
@@ -306,6 +307,7 @@ bool VideoDecoder::Open(const std::string& path) {
             WHBLogPrintf("===========================================");
             mWidth = codecParams->codec_id;
             mHeight = 4;
+            mFailedCodecName = avcodec_get_name(codecParams->codec_id);
             Close();
             return false;
         }
@@ -329,11 +331,11 @@ bool VideoDecoder::Open(const std::string& path) {
             return false;
         }
         
-        mVideoCodecCtx->thread_count = 2;  // Wii U has 3 cores, use 2 for decoding
-        mVideoCodecCtx->thread_type = FF_THREAD_SLICE;  // Slice-based threading
+        mVideoCodecCtx->thread_count = 2;
+        mVideoCodecCtx->thread_type = FF_THREAD_SLICE;
         if (codecParams->codec_id == AV_CODEC_ID_H264) {
-            mVideoCodecCtx->flags2 |= AV_CODEC_FLAG2_FAST;  // Fast decoding
-            mVideoCodecCtx->skip_loop_filter = AVDISCARD_NONREF;  // Skip loop filter for non-reference frames
+            mVideoCodecCtx->flags2 |= AV_CODEC_FLAG2_FAST;
+            mVideoCodecCtx->skip_loop_filter = AVDISCARD_NONREF;
         }
         WHBLogPrintf("VideoDecoder::Open: Enabled multi-threading (2 threads) and fast decode");
         
@@ -348,6 +350,8 @@ bool VideoDecoder::Open(const std::string& path) {
         mWidth = mVideoCodecCtx->width;
         mHeight = mVideoCodecCtx->height;
         WHBLogPrintf("VideoDecoder::Open: Video codec opened. Dimensions: %dx%d", mWidth, mHeight);
+        WHBLogPrintf("VideoDecoder::Open: Pixel format: %s", av_get_pix_fmt_name(mVideoCodecCtx->pix_fmt));
+        WHBLogPrintf("VideoDecoder::Open: Codec: %s", avcodec_get_name(mVideoCodecCtx->codec_id));
     } else {
         WHBLogPrintf("VideoDecoder::Open: Audio-only file detected");
         mWidth = 1;
@@ -482,6 +486,28 @@ bool VideoDecoder::Open(const std::string& path) {
             Close();
             return false;
         }
+        
+        // This ensures correct color conversion for YUVJ formats
+        int srcRange = 0;
+        int dstRange = 1;
+        
+        // Detect JPEG pixel formats (YUVJ*)
+        if (mVideoCodecCtx->pix_fmt == AV_PIX_FMT_YUVJ420P ||
+            mVideoCodecCtx->pix_fmt == AV_PIX_FMT_YUVJ422P ||
+            mVideoCodecCtx->pix_fmt == AV_PIX_FMT_YUVJ444P ||
+            mVideoCodecCtx->pix_fmt == AV_PIX_FMT_YUVJ440P) {
+            srcRange = 1;
+            WHBLogPrintf("VideoDecoder::Open: Detected JPEG pixel format, using full-range YUV");
+        }
+        
+        int *inv_table, *table;
+        int brightness, contrast, saturation;
+        sws_getColorspaceDetails(mSwsCtx, &inv_table, &srcRange, &table, &dstRange,
+                                 &brightness, &contrast, &saturation);
+        
+        // Update with correct range
+        sws_setColorspaceDetails(mSwsCtx, inv_table, srcRange, table, dstRange,
+                                 brightness, contrast, saturation);
     } else {
         WHBLogPrintf("VideoDecoder::Open: Skipping video-specific resources (audio-only)");
     }
@@ -600,12 +626,17 @@ bool VideoDecoder::ReadFrame(SDL_Texture* texture) {
     static Uint32 totalDecodeTime = 0;
     static Uint32 totalScaleTime = 0;
     static Uint32 totalTextureTime = 0;
+    static Uint32 totalPacketWaitTime = 0;
+    static Uint32 totalSendPacketTime = 0;
+    static Uint32 totalReceiveFrameTime = 0;
     static int framesProcessed = 0;
     
     Uint32 frameStartTime = SDL_GetTicks();
     frameCount++;
     
+    Uint32 lockStartTime = SDL_GetTicks();
     SDL_LockMutex(mPacketMutex);
+    Uint32 lockEndTime = SDL_GetTicks();
     
     if (mVideoPacketQueue.empty()) {
         SDL_UnlockMutex(mPacketMutex);
@@ -623,23 +654,36 @@ bool VideoDecoder::ReadFrame(SDL_Texture* texture) {
     int videoQueueSize = mVideoPacketQueue.size();
     
     SDL_UnlockMutex(mPacketMutex);
+    Uint32 unlockEndTime = SDL_GetTicks();
+    totalPacketWaitTime += (unlockEndTime - lockStartTime);
     
+    Uint32 sendPacketStartTime = SDL_GetTicks();
     if (avcodec_send_packet(mVideoCodecCtx, pkt) < 0) {
         av_packet_free(&pkt);
         WHBLogPrintf("[VIDEO] ERROR - Failed to send packet to decoder");
         return true;
     }
+    Uint32 sendPacketEndTime = SDL_GetTicks();
+    totalSendPacketTime += (sendPacketEndTime - sendPacketStartTime);
     
-    Uint32 decodeStartTime = SDL_GetTicks();
+    Uint32 receiveFrameStartTime = SDL_GetTicks();
     int receiveResult = avcodec_receive_frame(mVideoCodecCtx, mFrame);
-    Uint32 decodeEndTime = SDL_GetTicks();
+    Uint32 receiveFrameEndTime = SDL_GetTicks();
+    totalReceiveFrameTime += (receiveFrameEndTime - receiveFrameStartTime);
     
     if (receiveResult == 0) {
         if (mFrame->pts != AV_NOPTS_VALUE) {
             mCurrentTime = mFrame->pts * av_q2d(mFormatCtx->streams[mVideoStreamIndex]->time_base);
+        } else {
+            // Fallback for streams without PTS (common in MJPEG AVI)
+            // Estimate time based on frame rate
+            double frameRate = GetFrameRate();
+            if (frameRate > 0) {
+                mCurrentTime += 1.0 / frameRate;
+            }
         }
         
-        Uint32 decodeTime = decodeEndTime - decodeStartTime;
+        Uint32 decodeTime = receiveFrameEndTime - receiveFrameStartTime;
         totalDecodeTime += decodeTime;
         framesProcessed++;
         
@@ -676,18 +720,30 @@ bool VideoDecoder::ReadFrame(SDL_Texture* texture) {
             double avgDecode = framesProcessed > 0 ? (double)totalDecodeTime / framesProcessed : 0;
             double avgScale = framesProcessed > 0 ? (double)totalScaleTime / framesProcessed : 0;
             double avgTexture = framesProcessed > 0 ? (double)totalTextureTime / framesProcessed : 0;
+            double avgPacketWait = framesProcessed > 0 ? (double)totalPacketWaitTime / framesProcessed : 0;
+            double avgSendPacket = framesProcessed > 0 ? (double)totalSendPacketTime / framesProcessed : 0;
+            double avgReceiveFrame = framesProcessed > 0 ? (double)totalReceiveFrameTime / framesProcessed : 0;
             double avDrift = mCurrentTime - mAudioTime;
             double fps = framesProcessed / 2.0;  // Frames in 2 seconds
             
             WHBLogPrintf("[VIDEO] Frame #%d vPTS=%.2f aPTS=%.2f drift=%.0fms vQ=%d aQ=%d FPS=%.1f", 
                          frameCount, mCurrentTime, mAudioTime, avDrift * 1000.0, videoQueueSize, audioQueueSize, fps);
-            WHBLogPrintf("[VIDEO] Timing: total=%ums decode=%.1fms scale=%.1fms texture=%.1fms", 
-                         totalFrameTime, avgDecode, avgScale, avgTexture);
+            WHBLogPrintf("[VIDEO] Timing: total=%ums pktWait=%.1fms sendPkt=%.1fms recvFrame=%.1fms", 
+                         totalFrameTime, avgPacketWait, avgSendPacket, avgReceiveFrame);
+            WHBLogPrintf("[VIDEO] Timing: decode=%.1fms scale=%.1fms texture=%.1fms", 
+                         avgDecode, avgScale, avgTexture);
+            WHBLogPrintf("[VIDEO] Codec: %s (%dx%d) PixFmt: %s", 
+                         avcodec_get_name(mVideoCodecCtx->codec_id),
+                         mWidth, mHeight,
+                         av_get_pix_fmt_name(mVideoCodecCtx->pix_fmt));
             
             lastLogTime = now;
             totalDecodeTime = 0;
             totalScaleTime = 0;
             totalTextureTime = 0;
+            totalPacketWaitTime = 0;
+            totalSendPacketTime = 0;
+            totalReceiveFrameTime = 0;
             framesProcessed = 0;
         }
     } else if (receiveResult == AVERROR(EAGAIN)) {
@@ -1050,13 +1106,15 @@ void VideoDecoder::PacketReaderLoop() {
         if (ret < 0) {
             SDL_UnlockMutex(mPacketMutex);
             if (ret == AVERROR_EOF) {
-                WHBLogPrintf("[READER] EOF (v=%d a=%d)", videoPacketsRead, audioPacketsRead);
+                WHBLogPrintf("[READER] EOF (v=%d a=%d) - waiting for seek or stop", videoPacketsRead, audioPacketsRead);
+                SDL_Delay(50);
+                continue;
             } else {
                 char errbuf[128];
                 av_strerror(ret, errbuf, sizeof(errbuf));
                 WHBLogPrintf("[READER] Error: %d (%s)", ret, errbuf);
+                break;
             }
-            break;
         }
         
         totalReadTime += (readEndTime - readStartTime);
@@ -1078,7 +1136,6 @@ void VideoDecoder::PacketReaderLoop() {
         av_packet_unref(pkt);
         SDL_UnlockMutex(mPacketMutex);
         
-        // Log every 5 seconds for more frequent updates
         Uint32 now = SDL_GetTicks();
         if ((now - lastLogTime) > 5000) {
             double avgRead = readsPerformed > 0 ? (double)totalReadTime / readsPerformed : 0;

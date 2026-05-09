@@ -1,0 +1,5 @@
+Console.txt
+/build
+*.elf
+*.rpx
+*.wuhb
