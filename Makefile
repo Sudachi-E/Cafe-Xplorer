@@ -45,7 +45,7 @@ CXXFLAGS	:= $(CFLAGS) -std=gnu++20
 ASFLAGS	:=	$(ARCH)
 LDFLAGS	=	$(ARCH) $(RPXSPECS) -Wl,-Map,$(notdir $*.map)
 
-LIBS	:=	-lrpxloader -lmocha -lSDL2_mixer -lmpg123 -lmodplug -logg -lavformat -lavcodec -lavfilter -lswscale -lavutil -lswresample -lm -lSDL2_image -lwebp -lSDL2 -lSDL2_ttf -lfreetype -lharfbuzz -lfreetype -lpng -lbz2 -lbrotlidec -lbrotlicommon -lz -lwut
+LIBS	:=	-lrpxloader -lmocha -lSDL2_mixer -lmpg123 -lmodplug -logg -lavformat -lavcodec -lavfilter -lswscale -lavutil -lswresample -lm -lSDL2_image -lwebp -lSDL2 -lSDL2_ttf -lmupdf -lmupdf-third -lfreetype -lharfbuzz -lfreetype -lpng -lbz2 -lbrotlidec -lbrotlicommon -lz -lwut
 
 #-------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level
@@ -95,7 +95,8 @@ export HFILES_BIN	:=	$(addsuffix .h,$(subst .,_,$(BINFILES)))
 
 export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
 			$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
-			-I$(CURDIR)/$(BUILD) -I$(DEVKITPRO)/portlibs/wiiu/include/SDL2
+			-I$(CURDIR)/$(BUILD) -I$(DEVKITPRO)/portlibs/wiiu/include/SDL2 \
+			-I$(DEVKITPRO)/portlibs/ppc/include/freetype2
 
 export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 

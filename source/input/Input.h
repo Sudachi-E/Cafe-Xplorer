@@ -19,6 +19,8 @@ public:
         BUTTON_DOWN   = 0x0100,
         BUTTON_L      = 0x0020,
         BUTTON_R      = 0x0010,
+        BUTTON_ZL     = 0x0080,
+        BUTTON_ZR     = 0x0040,
         BUTTON_HOME   = 0x0002,
     };
 

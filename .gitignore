@@ -1,5 +1,6 @@
 Console.txt
 /build
+/root
 *.elf
 *.rpx
 *.wuhb

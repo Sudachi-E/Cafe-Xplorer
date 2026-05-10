@@ -1,6 +1,8 @@
 #include "FileManagerScreen.hpp"
 #include "TextEditorScreen.hpp"
 #include "ImageViewerScreen.hpp"
+#include "GifViewerScreen.hpp"
+#include "PdfViewerScreen.hpp"
 #include "VideoPlayerScreen.hpp"
 #include "AudioPlayerScreen.hpp"
 #include "SettingsScreen.hpp"
@@ -18,6 +20,18 @@
 #include <coreinit/title.h>
 #include <sysapp/launch.h>
 #include <rpxloader/rpxloader.h>
+
+static bool IsGifFile(const std::string& filename) {
+    std::string lower = filename;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    return lower.ends_with(".gif");
+}
+
+static bool IsPdfFile(const std::string& filename) {
+    std::string lower = filename;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    return lower.ends_with(".pdf");
+}
 
 FileManagerScreen::FileManagerScreen() : mSelectedIndex(0), mScrollOffset(0), mShowContextMenu(false), mContextMenuSelection(0), mClipboardIsDirectory(false), mClipboardIsMove(false), mShowDeletionModal(false), mShowLoadingModal(false), mLoadingStartTime(0), mShowLaunchConfirmModal(false), mLaunchModalSelection(0), mLastAnalogScrollTime(0), mShowCopyProgressModal(false), mCopyProgressBytes(0), mCopyProgressTotal(0) {
     Settings::Initialize();
@@ -44,6 +58,16 @@ void FileManagerScreen::Draw() {
     
     if (mImageViewer) {
         mImageViewer->Draw();
+        return;
+    }
+    
+    if (mGifViewer) {
+        mGifViewer->Draw();
+        return;
+    }
+    
+    if (mPdfViewer) {
+        mPdfViewer->Draw();
         return;
     }
     
@@ -196,6 +220,20 @@ bool FileManagerScreen::Update(Input &input) {
     if (mImageViewer) {
         if (!mImageViewer->Update(input) || mImageViewer->ShouldClose()) {
             mImageViewer.reset();
+        }
+        return true;
+    }
+    
+    if (mGifViewer) {
+        if (!mGifViewer->Update(input) || mGifViewer->ShouldClose()) {
+            mGifViewer.reset();
+        }
+        return true;
+    }
+    
+    if (mPdfViewer) {
+        if (!mPdfViewer->Update(input) || mPdfViewer->ShouldClose()) {
+            mPdfViewer.reset();
         }
         return true;
     }
@@ -415,6 +453,12 @@ bool FileManagerScreen::Update(Input &input) {
                 }
                 else if (IsImageFile(entry.name)) {
                     mImageViewer = std::make_unique<ImageViewerScreen>(entry.path);
+                }
+                else if (IsGifFile(entry.name)) {
+                    mGifViewer = std::make_unique<GifViewerScreen>(entry.path);
+                }
+                else if (IsPdfFile(entry.name)) {
+                    mPdfViewer = std::make_unique<PdfViewerScreen>(entry.path);
                 }
                 else if (IsVideoFile(entry.name)) {
                     WHBLogPrintf("===========================================");
@@ -857,8 +901,6 @@ void FileManagerScreen::LaunchHomebrew(const std::string& path) {
     std::string realPath = PathConverter::ToRealPath(path);
     WHBLogPrintf("Real path: %s", realPath.c_str());
     
-    // Check if this is a game RPX (inside a code folder with content/meta siblings)
-    // Path format: /storage_usb/usr/title/00050000/101c9500/code/U-King.rpx
     bool isGameRPX = false;
     uint64_t titleId = 0;
     
@@ -878,7 +920,7 @@ void FileManagerScreen::LaunchHomebrew(const std::string& path) {
                 try {
                     uint32_t titleIdLow = std::stoul(titleIdStr, nullptr, 16);
                     
-                    // Check for high part in path (e.g., 00050000)
+                    // Check for high part in path in (00050000)
                     size_t titleIdPos = beforeCode.find_last_of('/', lastSlash - 1);
                     if (titleIdPos != std::string::npos) {
                         std::string highIdStr = beforeCode.substr(titleIdPos + 1, lastSlash - titleIdPos - 1);
@@ -904,7 +946,7 @@ void FileManagerScreen::LaunchHomebrew(const std::string& path) {
         WHBLogPrintf("Launching game via _SYSLaunchTitleWithStdArgsInNoSplash");
         
         // Launch the game using its title ID
-        // The system will automatically find the game files on USB
+        // The system will automatically find the game files on USB... hopefully...
         _SYSLaunchTitleWithStdArgsInNoSplash(titleId, nullptr);
         
         // If we reach here, launch may have failed or is processing
@@ -913,7 +955,7 @@ void FileManagerScreen::LaunchHomebrew(const std::string& path) {
         return;
     }
     
-    // Not a game RPX, treat as homebrew
+    // Not a game RPX, treat as homebrew (Still needs to be worked on; can sometimes fail)
     WHBLogPrintf("Treating as homebrew application");
     
     bool isUSB = (realPath.find("storage_usb:/") == 0);
@@ -929,7 +971,6 @@ void FileManagerScreen::LaunchHomebrew(const std::string& path) {
         size_t lastSlash = realPath.find_last_of('/');
         std::string filename = (lastSlash != std::string::npos) ? realPath.substr(lastSlash + 1) : realPath;
         
-        // Create temp path on SD card
         tempFilePath = "sd:/wiiu/temp_rpx_" + filename;
         
         WHBLogPrintf("Temp file: %s", tempFilePath.c_str());
@@ -950,19 +991,16 @@ void FileManagerScreen::LaunchHomebrew(const std::string& path) {
             return;
         }
         
-        // Copy the file
         dst << src.rdbuf();
         src.close();
         dst.close();
         
         WHBLogPrintf("File copied successfully");
         
-        // Use the temp file path (remove sd:/ prefix for RPXLoader)
         launchPath = "wiiu/temp_rpx_" + filename;
         needsCleanup = true;
     }
     else {
-        // SD card path - normalize for RPXLoader
         if (realPath.find("sd:/") == 0) {
             launchPath = realPath.substr(4);  // Remove "sd:/"
             WHBLogPrintf("SD path detected, normalized to: %s", launchPath.c_str());
@@ -992,7 +1030,7 @@ void FileManagerScreen::LaunchHomebrew(const std::string& path) {
     WHBLogPrintf("RPXLoader initialized successfully");
     WHBLogPrintf("Attempting to launch: %s", launchPath.c_str());
     
-    // Launch the homebrew
+    // Launch homebrew
     RPXLoaderStatus res = RPXLoader_LaunchHomebrew(launchPath.c_str());
     if (res != RPX_LOADER_RESULT_SUCCESS) {
         WHBLogPrintf("Failed to launch: %s", RPXLoader_GetStatusStr(res));
@@ -1000,10 +1038,8 @@ void FileManagerScreen::LaunchHomebrew(const std::string& path) {
         WHBLogPrintf("Launch successful!");
     }
     
-    // Cleanup
     RPXLoader_DeInitLibrary();
     
-    // Clean up temp file if launch failed
     if (needsCleanup && res != RPX_LOADER_RESULT_SUCCESS) {
         std::remove(tempFilePath.c_str());
         WHBLogPrintf("Temp file cleaned up");

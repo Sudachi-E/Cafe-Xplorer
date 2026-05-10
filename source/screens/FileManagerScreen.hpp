@@ -6,6 +6,8 @@
 
 class TextEditorScreen;
 class ImageViewerScreen;
+class GifViewerScreen;
+class PdfViewerScreen;
 class VideoPlayerScreen;
 class AudioPlayerScreen;
 class SettingsScreen;
@@ -23,6 +25,8 @@ private:
     size_t mScrollOffset;
     std::unique_ptr<TextEditorScreen> mTextEditor;
     std::unique_ptr<ImageViewerScreen> mImageViewer;
+    std::unique_ptr<GifViewerScreen> mGifViewer;
+    std::unique_ptr<PdfViewerScreen> mPdfViewer;
     std::unique_ptr<VideoPlayerScreen> mVideoPlayer;
     std::unique_ptr<AudioPlayerScreen> mAudioPlayer;
     std::unique_ptr<SettingsScreen> mSettingsScreen;
