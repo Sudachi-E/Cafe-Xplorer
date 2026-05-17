@@ -33,6 +33,7 @@ void SettingsScreen::Draw() {
     Gfx::Clear(Gfx::COLOR_BACKGROUND);
     
     DrawTopBar("Settings");
+    Gfx::Print(Gfx::SCREEN_WIDTH / 2, 40, 48, Gfx::COLOR_TEXT, "Cafe-Xplorer", Gfx::ALIGN_CENTER);
     
     int yPos = 150;
     int lineHeight = 50;

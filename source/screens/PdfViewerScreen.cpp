@@ -1,5 +1,5 @@
 #include "PdfViewerScreen.hpp"
-#include "../Gfx.hpp"
+#include "Gfx.hpp"
 #include "../filemanager/PathConverter.hpp"
 #include <whb/log.h>
 #include <algorithm>
@@ -256,7 +256,7 @@ void PdfViewerScreen::Draw()
     snprintf(title, sizeof(title), "%s", filename.c_str());
 
     DrawTopBar(title);
-    DrawBottomBar("B: Back  L/R/Up/Down: Page", "Stick: Pan  ZL/ZR: Rotate", "A/Y: Zoom  X: Reset");
+    DrawBottomBar("B: Back  PageL/PageR: Page", "Stick: Pan  ZL/ZR: Rotate", "Zoom: Zoom  X: Reset");
 
     if (mLoadError) {
         Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 - 40, 48,
@@ -289,8 +289,8 @@ void PdfViewerScreen::Draw()
     } else {
         snprintf(info, sizeof(info), "%.0f%%", mZoom * 100.0f);
     }
-    Gfx::Print(Gfx::SCREEN_WIDTH - 20, VIEWPORT_Y + 10, 32,
-               Gfx::COLOR_WHITE, info, Gfx::ALIGN_RIGHT);
+    Gfx::Print(Gfx::SCREEN_WIDTH - 40, 40, 32,
+               Gfx::COLOR_TEXT, info, Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
 }
 
 bool PdfViewerScreen::Update(Input& input)
@@ -304,8 +304,7 @@ bool PdfViewerScreen::Update(Input& input)
     bool zoomChanged = false;
     const float deadzone = 0.2f;
 
-    if ((input.data.buttons_d & Input::BUTTON_R) ||
-        (input.data.buttons_d & Input::BUTTON_DOWN)) {
+    if (input.data.buttons_d & Input::BUTTON_R) {
         if (mCurrentPage < mPageCount - 1) {
             mCurrentPage++;
             mOffsetX = 0;
@@ -313,8 +312,7 @@ bool PdfViewerScreen::Update(Input& input)
             pageChanged = true;
         }
     }
-    if ((input.data.buttons_d & Input::BUTTON_L) ||
-        (input.data.buttons_d & Input::BUTTON_UP)) {
+    if (input.data.buttons_d & Input::BUTTON_L) {
         if (mCurrentPage > 0) {
             mCurrentPage--;
             mOffsetX = 0;

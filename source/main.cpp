@@ -13,12 +13,9 @@
 #include <padscore/kpad.h>
 #include <sndcore2/core.h>
 #include <sysapp/launch.h>
+#include <vpad/input.h>
 #include <whb/proc.h>
 #include <whb/log.h>
-
-inline bool RunningFromMiiMaker() {
-    return (OSGetTitleID() & 0xFFFFFFFFFFFFF0FFull) == 0x000500101004A000ull;
-}
 
 int main(int argc, char const *argv[]) {
     WHBProcInit();
@@ -30,7 +27,7 @@ int main(int argc, char const *argv[]) {
     
     PathConverter::AddRootDirectory("fs");
     
-    //     mount additional filesystems if full access is enabled
+    // mount additional filesystems if full access is enabled
     if (Settings::GetFullFilesystemAccess()) {
         WHBLogPrintf("Full filesystem access enabled, mounting all storage");
         FilesystemManager::MountAllFilesystems();
@@ -41,6 +38,7 @@ int main(int argc, char const *argv[]) {
     AXInit();
     AXQuit();
 
+    VPADInit();
     KPADInit();
     WPADEnableURCC(TRUE);
 
@@ -67,7 +65,9 @@ int main(int argc, char const *argv[]) {
         WPADInput(WPAD_CHAN_3)
     };
 
-    while (WHBProcIsRunning()) {
+    while (true) {
+        if (!WHBProcIsRunning()) break;
+
         Keyboard::Update();
         
         if (!Keyboard::IsActive()) {
@@ -86,19 +86,18 @@ int main(int argc, char const *argv[]) {
             baseInput.process();
 
             if (!fileManagerScreen->Update(baseInput)) {
-                if (RunningFromMiiMaker()) {
-                    break;
-                } else {
                     SYSLaunchMenu();
                     break;
                 }
             }
-        }
+
+        if (!WHBProcIsRunning()) break;
 
         fileManagerScreen->Draw();
-        
         Keyboard::Draw();
-        
+
+        if (!WHBProcIsRunning()) break;
+
         Gfx::Render();
     }
 
@@ -114,7 +113,8 @@ int main(int argc, char const *argv[]) {
     WHBLogPrintf("Graphics shutdown complete");
     
     KPADShutdown();
-    WHBLogPrintf("KPAD shutdown complete");
+    VPADShutdown();
+    WHBLogPrintf("KPAD/VPAD shutdown complete");
     
     if (FilesystemManager::IsMochaInitialized()) {
         FilesystemManager::UnmountAllFilesystems();

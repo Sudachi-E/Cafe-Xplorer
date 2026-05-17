@@ -44,7 +44,7 @@ bool FileManager::ScanDirectory(const std::string& path) {
     
     std::string realPath = PathConverter::ToRealPath(path);
     WHBLogPrintf("Converted path: %s -> %s", path.c_str(), realPath.c_str());
-    
+
     DIR* dir = opendir(realPath.c_str());
     
     if (!dir) {
@@ -373,7 +373,7 @@ bool FileManager::PasteEntryInternal(const std::string& sourcePath, const std::s
     } else {
         // Copy file in chunks so progress is reported correctly
         static const size_t CHUNK_SIZE = 256 * 1024;
-
+        std::vector<char> buffer(CHUNK_SIZE);
         std::ifstream src(realSourcePath.c_str(), std::ios::binary);
         if (!src.is_open()) {
             WHBLogPrintf("Failed to open source file: %s", realSourcePath.c_str());
@@ -386,7 +386,6 @@ bool FileManager::PasteEntryInternal(const std::string& sourcePath, const std::s
             return false;
         }
 
-        std::vector<char> buffer(CHUNK_SIZE);
         while (src) {
             src.read(buffer.data(), CHUNK_SIZE);
             std::streamsize bytesRead = src.gcount();
@@ -434,7 +433,6 @@ bool FileManager::MoveEntry(const std::string& sourcePath, const std::string& de
     
     std::string realSourcePath = PathConverter::ToRealPath(sourcePath);
     std::string realDestPath = PathConverter::ToRealPath(destPath);
-    
     if (rename(realSourcePath.c_str(), realDestPath.c_str()) == 0) {
         WHBLogPrintf("Successfully moved using rename: %s to %s", sourcePath.c_str(), destPath.c_str());
         return true;

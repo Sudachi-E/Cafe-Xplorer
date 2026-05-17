@@ -1,5 +1,6 @@
 #include "ImageViewerScreen.hpp"
 #include "../Gfx.hpp"
+#include "../filemanager/PathConverter.hpp"
 #include <SDL_image.h>
 #include <whb/log.h>
 #include <algorithm>
@@ -17,7 +18,8 @@ ImageViewerScreen::ImageViewerScreen(const std::string& imagePath)
         return;
     }
     
-    SDL_Surface* surface = IMG_Load(imagePath.c_str());
+    std::string realPath = PathConverter::ToRealPath(imagePath);
+    SDL_Surface* surface = IMG_Load(realPath.c_str());
     if (!surface) {
         WHBLogPrintf("Failed to load image: %s", IMG_GetError());
         mLoadError = true;
@@ -50,7 +52,7 @@ void ImageViewerScreen::Draw() {
     Gfx::Clear(Gfx::COLOR_BLACK);
     
     DrawTopBar(mImagePath.c_str());
-    DrawBottomBar("B: Back", "Left Stick: Pan | Right Stick: Zoom", "X: Reset");
+    DrawBottomBar("B: Back", "Stick: Pan  Zoom: Right Stick", "X: Reset");
     
     if (mLoadError) {
         Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 48,

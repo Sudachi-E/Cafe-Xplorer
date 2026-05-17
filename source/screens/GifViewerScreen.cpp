@@ -1,5 +1,5 @@
 #include "GifViewerScreen.hpp"
-#include "../Gfx.hpp"
+#include "Gfx.hpp"
 #include "../filemanager/PathConverter.hpp"
 #include <whb/log.h>
 #include <algorithm>
@@ -85,7 +85,7 @@ void GifViewerScreen::Draw() {
     Gfx::Clear(Gfx::COLOR_BLACK);
 
     DrawTopBar(mGifPath.c_str());
-    DrawBottomBar("B: Back", "A: Play/Pause  X: Reset", "L/R: Zoom");
+    DrawBottomBar("B: Back", "A: Play/Pause  X: Reset", "Zoom: L/R");
 
     if (mLoadError) {
         Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 48,

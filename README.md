@@ -9,10 +9,7 @@ A multi-purpose file manager for the Nintendo Wii U.
 - Navigate with D-Pad
 - View file information (name, size, type)
 - Create new files and folders
-- Copy and paste files/folders
-- Move files/folders
-- Rename files and folders
-- Delete files and folders
+- Copy/Paste/Move/Rename/Delete files/folders
 - Side panel menu for quick access to operations
 
 ### Text Editor
@@ -23,10 +20,25 @@ A multi-purpose file manager for the Nintendo Wii U.
 - Save dialog on close when modified (Save, Save As, or Discard)
 
 ### Image Viewer
-- View PNG/JPG images
+- View PNG/JPG/JPEG images
 - Zoom in/out controls
 - Pan when zoomed
 - Reset zoom and position
+
+### GIF Viewer
+- View animated GIFs
+- Play/Pause toggle
+- Zoom in/out (buttons + stick)
+- Pan with stick / D-Pad (when zoomed)
+- Reset zoom and position
+
+### PDF Viewer
+- View PDF documents (MuPDF-based renderer)
+- Page navigation (L/R)
+- Zoom in/out (A/Y + right stick)
+- Pan when zoomed (left stick / D-Pad)
+- Rotate pages (ZL/ZR)
+- Reset zoom
 
 ### Video Player
 - Play MP4, AVI, MKV, and MOV video files
@@ -39,22 +51,6 @@ A multi-purpose file manager for the Nintendo Wii U.
 - Playback controls (Play/Pause)
 - Seek forward/backward (10 seconds)
 - Progress bar with time display
-
-## Requirements
-- devkitPro toolchain with `DEVKITPRO` environment variable set
-- Libraries:
-  - [wut](https://github.com/devkitPro/wut)
-  - [wiiu-sdl2](https://github.com/yawut/SDL) (wiiu-sdl2_ttf, wiiu-sdl2_image)
-  - [FFmpeg](https://github.com/GaryOderNichts/FFmpeg-wiiu) (libavformat, libavcodec, libavutil, libswscale, libswresample)
-  - [libmocha](https://github.com/wiiu-env/libmocha)
-
-## Build
-```bash
-make
-```
-
-## Installation
-Copy `Café-Xplorer.wuhb` or `.rpx` to `sd:/wiiu/apps/`
 
 ## Screenshots
 
@@ -77,6 +73,22 @@ Copy `Café-Xplorer.wuhb` or `.rpx` to `sd:/wiiu/apps/`
 ### Music Player
 ![Video Player](Screenshots/Screenshot_6.jpg)
 
+## Requirements
+- devkitPro toolchain with `DEVKITPRO` environment variable set
+- Libraries:
+  - [wut](https://github.com/devkitPro/wut)
+  - [wiiu-sdl2](https://github.com/yawut/SDL) (wiiu-sdl2_ttf, wiiu-sdl2_image)
+  - [FFmpeg](https://github.com/GaryOderNichts/FFmpeg-wiiu) (libavformat, libavcodec, libavutil, libswscale, libswresample)
+  - [libmocha](https://github.com/wiiu-env/libmocha)
+
+## Build
+```bash
+make
+```
+
+## Installation
+Copy `Café-Xplorer.wuhb` or `.rpx` to `sd:/wiiu/apps/`
+
 
 ## Credits
 
@@ -86,3 +98,4 @@ Copy `Café-Xplorer.wuhb` or `.rpx` to `sd:/wiiu/apps/`
 - UI/Name design inspired by [N-Xplorer](https://github.com/CompSciOrBust/N-Xplorer) by [@CompSciOrBust](https://github.com/CompSciOrBust)
 - [@wiiu-env](https://github.com/wiiu-env) for [libmocha](https://github.com/wiiu-env/libmocha) filesystem access
 - [@wiiu-env](https://github.com/wiiu-env) for [librpxloader](https://github.com/wiiu-env/librpxloader) for loading .rpx and .wuhb files
+- [@hito16](https://github.com/hito16) for [mupdf-devkitppc](https://github.com/hito16/mupdf-devkitppc) for viewing PDFs

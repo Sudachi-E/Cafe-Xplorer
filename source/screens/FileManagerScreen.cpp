@@ -33,7 +33,7 @@ static bool IsPdfFile(const std::string& filename) {
     return lower.ends_with(".pdf");
 }
 
-FileManagerScreen::FileManagerScreen() : mSelectedIndex(0), mScrollOffset(0), mShowContextMenu(false), mContextMenuSelection(0), mClipboardIsDirectory(false), mClipboardIsMove(false), mShowDeletionModal(false), mShowLoadingModal(false), mLoadingStartTime(0), mShowLaunchConfirmModal(false), mLaunchModalSelection(0), mLastAnalogScrollTime(0), mShowCopyProgressModal(false), mCopyProgressBytes(0), mCopyProgressTotal(0) {
+FileManagerScreen::FileManagerScreen() : mSelectedIndex(0), mScrollOffset(0), mShowContextMenu(false), mContextMenuSelection(0), mClipboardIsDirectory(false), mClipboardIsMove(false), mShowDeletionModal(false), mShowLoadingModal(false), mLoadingStartTime(0), mShowLaunchConfirmModal(false), mLaunchModalSelection(0), mLastUpdateTick(0), mHoldTimer(0.0f), mRepeatAccum(0.0f), mShowCopyProgressModal(false), mCopyProgressBytes(0), mCopyProgressTotal(0) {
     Settings::Initialize();
     
     if (Settings::GetFullFilesystemAccess()) {
@@ -84,6 +84,7 @@ void FileManagerScreen::Draw() {
     Gfx::Clear(Gfx::COLOR_BACKGROUND);
     
     DrawTopBar(mFileManager.GetCurrentPath().c_str());
+    Gfx::Print(Gfx::SCREEN_WIDTH / 2, 40, 48, Gfx::COLOR_TEXT, "Cafe-Xplorer", Gfx::ALIGN_CENTER);
     
     std::string leftText = "A: Select  X: Menu  Y: Settings";
     if (mFileManager.HasMoreEntries()) {
@@ -389,49 +390,52 @@ bool FileManagerScreen::Update(Input &input) {
     
     const auto& entries = mFileManager.GetEntries();
     
-    // Handle D-pad navigation
-    if (input.data.buttons_d & Input::BUTTON_DOWN) {
-        if (!entries.empty()) {
-            mSelectedIndex = (mSelectedIndex + 1) % entries.size();
-            
+    if (!entries.empty()) {
+        uint32_t now = SDL_GetTicks();
+        float dt = (mLastUpdateTick > 0) ? (now - mLastUpdateTick) / 1000.0f : 0.016f;
+        mLastUpdateTick = now;
+
+        bool holdingDown = (input.data.buttons_h & Input::BUTTON_DOWN) != 0;
+        bool holdingUp   = (input.data.buttons_h & Input::BUTTON_UP)   != 0;
+        bool holding     = holdingDown || holdingUp;
+
+        int navDelta = 0;
+
+        if (input.data.buttons_d & Input::BUTTON_DOWN) {
+            navDelta    = 1;
+            mHoldTimer  = 0.0f;
+            mRepeatAccum = 0.0f;
+        } else if (input.data.buttons_d & Input::BUTTON_UP) {
+            navDelta    = -1;
+            mHoldTimer  = 0.0f;
+            mRepeatAccum = 0.0f;
+        } else if (holding) {
+            mHoldTimer += dt;
+            if (mHoldTimer >= 0.3f) {
+                float interval = (mHoldTimer < 1.5f) ? 0.12f : 0.04f;
+                mRepeatAccum += dt;
+                while (mRepeatAccum >= interval) {
+                    mRepeatAccum -= interval;
+                    navDelta += holdingDown ? 1 : -1;
+                }
+            }
+        } else {
+            mHoldTimer   = 0.0f;
+            mRepeatAccum = 0.0f;
+        }
+
+        if (navDelta != 0) {
+            int steps = std::min(std::abs(navDelta), (int)entries.size());
+            int dir   = (navDelta > 0) ? 1 : -1;
+            for (int s = 0; s < steps; s++) {
+                if (dir > 0) {
+                    mSelectedIndex = (mSelectedIndex + 1) % entries.size();
+                } else {
+                    mSelectedIndex = (mSelectedIndex == 0) ? entries.size() - 1 : mSelectedIndex - 1;
+                }
+            }
             if (mFileManager.HasMoreEntries() && mSelectedIndex >= entries.size() - 10) {
                 mFileManager.LoadMoreEntries();
-            }
-        }
-    }
-    
-    if (input.data.buttons_d & Input::BUTTON_UP) {
-        if (!entries.empty()) {
-            mSelectedIndex = (mSelectedIndex == 0) ? entries.size() - 1 : mSelectedIndex - 1;
-        }
-    }
-    
-    // Handle left analog stick for faster navigation
-    if (!entries.empty()) {
-        const float STICK_THRESHOLD = 0.5f;
-        const int FAST_SCROLL_AMOUNT = 5;
-        const uint64_t ANALOG_SCROLL_DELAY_MS = 150; // Delay between analog scroll movements
-        
-        uint64_t currentTime = OSGetSystemTime();
-        uint64_t timeSinceLastScroll = OSTicksToMilliseconds(currentTime - mLastAnalogScrollTime);
-        
-        if (timeSinceLastScroll >= ANALOG_SCROLL_DELAY_MS) {
-            if (input.data.leftStickY < -STICK_THRESHOLD) {
-                // Stick pushed down - move down faster
-                mSelectedIndex = std::min(mSelectedIndex + FAST_SCROLL_AMOUNT, entries.size() - 1);
-                mLastAnalogScrollTime = currentTime;
-                
-                if (mFileManager.HasMoreEntries() && mSelectedIndex >= entries.size() - 10) {
-                    mFileManager.LoadMoreEntries();
-                }
-            } else if (input.data.leftStickY > STICK_THRESHOLD) {
-                // Stick pushed up - move up faster
-                if (mSelectedIndex >= FAST_SCROLL_AMOUNT) {
-                    mSelectedIndex -= FAST_SCROLL_AMOUNT;
-                } else {
-                    mSelectedIndex = 0;
-                }
-                mLastAnalogScrollTime = currentTime;
             }
         }
     }
@@ -688,7 +692,8 @@ void FileManagerScreen::CreateNewFile(const std::string& filename) {
     }
     fullPath += filename;
     
-    std::ofstream file(fullPath);
+    std::string realPath = PathConverter::ToRealPath(fullPath);
+    std::ofstream file(realPath);
     if (file.is_open()) {
         file.close();
         mFileManager.ScanDirectory(mFileManager.GetCurrentPath());
@@ -1044,6 +1049,4 @@ void FileManagerScreen::LaunchHomebrew(const std::string& path) {
         std::remove(tempFilePath.c_str());
         WHBLogPrintf("Temp file cleaned up");
     }
-    
-    WHBLogPrintf("===========================================");
 }

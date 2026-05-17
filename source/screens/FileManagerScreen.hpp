@@ -45,7 +45,9 @@ private:
     std::string mLaunchFileName;
     std::string mLaunchFilePath;
     int mLaunchModalSelection;
-    uint64_t mLastAnalogScrollTime;
+    uint64_t mLastUpdateTick;
+    float mHoldTimer;
+    float mRepeatAccum;
     
     // Copy progress modal state
     bool mShowCopyProgressModal;

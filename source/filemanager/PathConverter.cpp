@@ -12,7 +12,6 @@ void PathConverter::Initialize() {
     sVirtualDirs["/fs"] = {"vol"};
     
     sVirtualDirs["/fs/vol"] = {"external01", "content", "save"};
-    
     sVirtualDirs["/fs/vol/content"] = {};
     sVirtualDirs["/fs/vol/save"] = {};
     
@@ -21,7 +20,11 @@ void PathConverter::Initialize() {
 
 void PathConverter::AddRootDirectory(const std::string& dirName) {
     if (!sInitialized) Initialize();
-    sVirtualDirs["/"].push_back(dirName);
+
+    auto &roots = sVirtualDirs["/"];
+    if (std::find(roots.begin(), roots.end(), dirName) == roots.end()) {
+        roots.push_back(dirName);
+    }
     
     std::string virtualPath = "/" + dirName;
     if (sVirtualDirs.find(virtualPath) == sVirtualDirs.end()) {
