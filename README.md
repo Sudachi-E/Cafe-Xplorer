@@ -14,7 +14,6 @@ A multi-purpose file manager for the Nintendo Wii U.
 
 ### Text Editor
 - View and edit text files (.txt, .json, .log, .ini, .cfg, .xml, .md)
-- Line-by-line editing with native Wii U keyboard
 - Insert and delete lines
 - View and edit modes
 - Save dialog on close when modified (Save, Save As, or Discard)
@@ -28,15 +27,15 @@ A multi-purpose file manager for the Nintendo Wii U.
 ### GIF Viewer
 - View animated GIFs
 - Play/Pause toggle
-- Zoom in/out (buttons + stick)
-- Pan with stick / D-Pad (when zoomed)
+- Zoom in/out (right stick)
+- Pan with left stick
 - Reset zoom and position
 
 ### PDF Viewer
-- View PDF documents (MuPDF-based renderer)
+- View PDF documents
 - Page navigation (L/R)
-- Zoom in/out (A/Y + right stick)
-- Pan when zoomed (left stick / D-Pad)
+- Zoom in/out (right stick)
+- Pan when zoomed (left stick)
 - Rotate pages (ZL/ZR)
 - Reset zoom
 
