@@ -253,12 +253,12 @@ bool FileManagerScreen::Update(Input &input) {
         return true;
     }
     
-    if (input.data.buttons_d & Input::BUTTON_Y) {
+    if (input.data.buttons_d & (Input::BUTTON_Y | Input::BUTTON_MINUS)) {
         mSettingsScreen = std::make_unique<SettingsScreen>();
         return true;
     }
     
-    if (input.data.buttons_d & Input::BUTTON_X) {
+    if (input.data.buttons_d & (Input::BUTTON_X | Input::BUTTON_PLUS)) {
         mShowContextMenu = !mShowContextMenu;
         mContextMenuSelection = 0;
         return true;

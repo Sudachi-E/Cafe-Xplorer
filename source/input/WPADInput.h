@@ -31,6 +31,14 @@ public:
             data.leftStickY  = kpad.classic.leftStick.y;
             data.rightStickX = kpad.classic.rightStick.x;
             data.rightStickY = kpad.classic.rightStick.y;
+        } else if (kpad.extensionType == WPAD_EXT_CORE) {
+            data.buttons_h = MapWiiButtons(kpad.hold);
+            data.buttons_d = MapWiiButtons(kpad.trigger);
+            data.buttons_r = MapWiiButtons(kpad.release);
+            data.leftStickX  = 0.0f;
+            data.leftStickY  = 0.0f;
+            data.rightStickX = 0.0f;
+            data.rightStickY = 0.0f;
         } else {
             data.buttons_h = kpad.hold;
             data.buttons_d = kpad.trigger;
@@ -46,6 +54,20 @@ public:
 
 private:
     WPADChan mChan;
+
+    static uint32_t MapWiiButtons(uint32_t p) {
+        uint32_t m = 0;
+        if (p & WPAD_BUTTON_LEFT)    m |= Input::BUTTON_LEFT;
+        if (p & WPAD_BUTTON_RIGHT)   m |= Input::BUTTON_RIGHT;
+        if (p & WPAD_BUTTON_DOWN)    m |= Input::BUTTON_DOWN;
+        if (p & WPAD_BUTTON_UP)      m |= Input::BUTTON_UP;
+        if (p & WPAD_BUTTON_PLUS)    m |= Input::BUTTON_PLUS;
+        if (p & WPAD_BUTTON_B)       m |= Input::BUTTON_B;
+        if (p & WPAD_BUTTON_A)       m |= Input::BUTTON_A;
+        if (p & WPAD_BUTTON_MINUS)   m |= Input::BUTTON_MINUS;
+        if (p & WPAD_BUTTON_HOME)    m |= Input::BUTTON_HOME;
+        return m;
+    }
 
     static uint32_t MapProButtons(uint32_t p) {
         uint32_t m = 0;

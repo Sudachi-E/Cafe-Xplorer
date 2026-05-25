@@ -21,6 +21,8 @@ public:
         BUTTON_R      = 0x0010,
         BUTTON_ZL     = 0x0080,
         BUTTON_ZR     = 0x0040,
+        BUTTON_PLUS   = 0x0004,
+        BUTTON_MINUS  = 0x0008,
         BUTTON_HOME   = 0x0002,
     };
 
