@@ -17,9 +17,12 @@ public:
     
     static void AddRootDirectory(const std::string& dirName);
     
+    static void AddRedirect(const std::string& displayName, const std::string& devoptabPath);
+    
     static void ClearRootDirectory();
     
 private:
     static std::map<std::string, std::vector<std::string>> sVirtualDirs;
+    static std::map<std::string, std::string> sRedirects;
     static bool sInitialized;
 };

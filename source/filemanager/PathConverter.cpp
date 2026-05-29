@@ -2,6 +2,7 @@
 #include <algorithm>
 
 std::map<std::string, std::vector<std::string>> PathConverter::sVirtualDirs;
+std::map<std::string, std::string> PathConverter::sRedirects;
 bool PathConverter::sInitialized = false;
 
 void PathConverter::Initialize() {
@@ -32,6 +33,12 @@ void PathConverter::AddRootDirectory(const std::string& dirName) {
     }
 }
 
+void PathConverter::AddRedirect(const std::string& displayName, const std::string& devoptabPath) {
+    if (!sInitialized) Initialize();
+    sRedirects[displayName] = devoptabPath;
+    AddRootDirectory(displayName);
+}
+
 void PathConverter::ClearRootDirectory() {
     if (!sInitialized) Initialize();
     sVirtualDirs["/"].clear();
@@ -48,9 +55,18 @@ std::string PathConverter::ToRealPath(const std::string& displayPath) {
     }
     
     size_t secondSlash = path.find('/', 1);
+    std::string prefix = path.substr(1, secondSlash != std::string::npos ? secondSlash - 1 : std::string::npos);
+    
+    // Checks redirects first.
+    auto redirectIt = sRedirects.find(prefix);
+    if (redirectIt != sRedirects.end()) {
+        if (secondSlash != std::string::npos) {
+            return redirectIt->second + path.substr(secondSlash);
+        }
+        return redirectIt->second + "/";
+    }
     
     if (secondSlash != std::string::npos) {
-        std::string prefix = path.substr(1, secondSlash - 1);
         std::string suffix = path.substr(secondSlash);
         return prefix + ":" + suffix;
     } else {
@@ -59,6 +75,18 @@ std::string PathConverter::ToRealPath(const std::string& displayPath) {
 }
 
 std::string PathConverter::ToDisplayPath(const std::string& realPath) {
+    // Check redirects in reverse: finds devoptabPath prefix in realPath.
+    for (auto it = sRedirects.rbegin(); it != sRedirects.rend(); ++it) {
+        const auto& devoptabPath = it->second;
+        if (realPath == devoptabPath || realPath.rfind(devoptabPath + "/", 0) == 0) {
+            std::string suffix = realPath.substr(devoptabPath.length());
+            if (suffix.empty() || suffix == "/") {
+                return "/" + it->first;
+            }
+            return "/" + it->first + suffix;
+        }
+    }
+    
     size_t colonPos = realPath.find(':');
     if (colonPos != std::string::npos) {
         std::string prefix = realPath.substr(0, colonPos);

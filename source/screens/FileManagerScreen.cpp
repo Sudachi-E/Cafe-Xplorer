@@ -12,6 +12,7 @@
 #include "../utils/FilesystemManager.hpp"
 #include "../filemanager/PathConverter.hpp"
 #include <whb/log.h>
+#include <dirent.h>
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
@@ -198,9 +199,13 @@ bool FileManagerScreen::Update(Input &input) {
                     FilesystemManager::MountAllFilesystems();
                     mFileManager.ScanDirectory("/");
                 } else {
-                    WHBLogPrintf("Unmounting filesystems after settings change");
-                    FilesystemManager::UnmountAllFilesystems();
-                    mFileManager.ScanDirectory("/fs/vol/external01");
+                    WHBLogPrintf("Switching to SD-only mode");
+                    DIR* testSd = opendir("storage_sd:/");
+                    if (testSd) {
+                        closedir(testSd);
+                        PathConverter::AddRootDirectory("storage_sd");
+                    }
+                    mFileManager.ScanDirectory("/");
                 }
                 mSelectedIndex = 0;
                 mScrollOffset = 0;

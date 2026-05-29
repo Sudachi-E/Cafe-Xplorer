@@ -28,7 +28,7 @@ include $(DEVKITPRO)/wut/share/wut_rules
 #-------------------------------------------------------------------------------
 TARGET		:=	Cafe-Xplorer
 BUILD		:=	build
-SOURCES		:=	source source/screens source/input source/utils source/filemanager source/video source/audio
+SOURCES		:=	source source/screens source/input source/utils source/utils/fatfs source/filemanager source/video source/audio
 DATA		:=	data
 INCLUDES	:=	source include source/screens
 
@@ -107,13 +107,9 @@ WUHB_ICON := meta/iconTex.tga
 WUHB_TV_SPLASH := meta/bootTvTex.tga
 WUHB_DRC_SPLASH := meta/bootDrcTex.tga
 
-ifneq (,$(strip $(ICON)))
-	export APP_ICON := $(TOPDIR)/$(ICON)
-else ifneq (,$(wildcard $(TOPDIR)/$(TARGET).png))
-	export APP_ICON := $(TOPDIR)/$(TARGET).png
-else ifneq (,$(wildcard $(TOPDIR)/icon.png))
-	export APP_ICON := $(TOPDIR)/icon.png
-endif
+export APP_ICON := $(TOPDIR)/$(WUHB_ICON)
+export APP_TV_SPLASH := $(TOPDIR)/$(WUHB_TV_SPLASH)
+export APP_DRC_SPLASH := $(TOPDIR)/$(WUHB_DRC_SPLASH)
 
 .PHONY: $(BUILD) clean all
 

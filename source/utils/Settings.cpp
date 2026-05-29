@@ -2,6 +2,7 @@
 #include <fstream>
 #include <whb/log.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 bool Settings::sFullFilesystemAccess = false;
 bool Settings::sInitialized = false;
@@ -13,6 +14,9 @@ std::string Settings::GetSettingsPath() {
 void Settings::Initialize() {
     if (sInitialized) return;
     Load();
+    mkdir("fs:/vol/external01/wiiu", 0777);
+    mkdir("fs:/vol/external01/wiiu/apps", 0777);
+    mkdir("fs:/vol/external01/wiiu/apps/Cafe-Xplorer", 0777);
     sInitialized = true;
 }
 
@@ -38,16 +42,10 @@ void Settings::Load() {
 
 void Settings::Save() {
     std::string settingsPath = GetSettingsPath();
-    
-    std::string dirPath = "fs:/vol/external01/wiiu/apps/Cafe-Xplorer";
-    
-    mkdir("fs:/vol/external01/wiiu", 0777);
-    mkdir("fs:/vol/external01/wiiu/apps", 0777);
-    mkdir(dirPath.c_str(), 0777);
-    
     std::ofstream file(settingsPath);
     if (!file.is_open()) {
-        WHBLogPrintf("Failed to save settings file to: %s", settingsPath.c_str());
+        WHBLogPrintf("Failed to save settings file to: %s (dir missing?)", settingsPath.c_str());
+        WHBLogPrintf("  setting still applied in memory, may not persist across reboot");
         return;
     }
     

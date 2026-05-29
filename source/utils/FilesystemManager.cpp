@@ -1,7 +1,9 @@
 #include "FilesystemManager.hpp"
+#include "FatUsbManager.hpp"
 #include "../filemanager/PathConverter.hpp"
 #include <mocha/mocha.h>
 #include <whb/log.h>
+#include <dirent.h>
 
 bool FilesystemManager::sMochaInitialized = false;
 
@@ -28,78 +30,111 @@ void FilesystemManager::MountAllFilesystems() {
     }
     
     WHBLogPrintf("Mounting all filesystems...");
-    
-    auto mountRes = Mocha_MountFS("slccmpt01", "/dev/slccmpt01", "/vol/storage_slccmpt01");
-    if (mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
-        mountRes = Mocha_MountFS("slccmpt01", nullptr, "/vol/storage_slccmpt01");
-    }
-    if (mountRes == MOCHA_RESULT_SUCCESS) {
-        WHBLogPrintf("slccmpt01 mounted successfully");
+
+    static bool sDevoptabsInitialized = false;
+
+    auto oneTimeMount = [&](const char* name, const char* path) -> MochaUtilsStatus {
+        if (!sDevoptabsInitialized)
+            return Mocha_MountFS(name, nullptr, path);
+        return MOCHA_RESULT_SUCCESS;
+    };
+
+    MochaUtilsStatus mountRes;
+
+    mountRes = oneTimeMount("slccmpt01", "/vol/storage_slccmpt01");
+    if (mountRes == MOCHA_RESULT_SUCCESS || mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
+        if (!sDevoptabsInitialized)
+            WHBLogPrintf("slccmpt01 mounted successfully");
         PathConverter::AddRootDirectory("slccmpt01");
     }
-    
-    mountRes = Mocha_MountFS("storage_odd_tickets", nullptr, "/vol/storage_odd01");
-    if (mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
-        mountRes = Mocha_MountFS("storage_odd_tickets", nullptr, "/vol/storage_odd01");
-    }
-    if (mountRes == MOCHA_RESULT_SUCCESS) {
-        WHBLogPrintf("storage_odd_tickets mounted successfully");
-        PathConverter::AddRootDirectory("storage_odd_tickets");
-    }
-    
-    mountRes = Mocha_MountFS("storage_odd_updates", nullptr, "/vol/storage_odd02");
-    if (mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
-        mountRes = Mocha_MountFS("storage_odd_updates", nullptr, "/vol/storage_odd02");
-    }
-    if (mountRes == MOCHA_RESULT_SUCCESS) {
-        WHBLogPrintf("storage_odd_updates mounted successfully");
-        PathConverter::AddRootDirectory("storage_odd_updates");
-    }
-    
-    mountRes = Mocha_MountFS("storage_odd_content", nullptr, "/vol/storage_odd03");
-    if (mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
-        mountRes = Mocha_MountFS("storage_odd_content", nullptr, "/vol/storage_odd03");
-    }
-    if (mountRes == MOCHA_RESULT_SUCCESS) {
-        WHBLogPrintf("storage_odd_content mounted successfully");
-        PathConverter::AddRootDirectory("storage_odd_content");
-    }
-    
-    mountRes = Mocha_MountFS("storage_odd_content2", nullptr, "/vol/storage_odd04");
-    if (mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
-        mountRes = Mocha_MountFS("storage_odd_content2", nullptr, "/vol/storage_odd04");
-    }
-    if (mountRes == MOCHA_RESULT_SUCCESS) {
-        WHBLogPrintf("storage_odd_content2 mounted successfully");
-        PathConverter::AddRootDirectory("storage_odd_content2");
-    }
-    
-    mountRes = Mocha_MountFS("storage_slc", "/dev/slc01", "/vol/storage_slc01");
-    if (mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
-        mountRes = Mocha_MountFS("storage_slc", nullptr, "/vol/storage_slc01");
-    }
-    if (mountRes == MOCHA_RESULT_SUCCESS) {
-        WHBLogPrintf("SLC filesystem mounted successfully");
+
+    mountRes = oneTimeMount("storage_slc", "/vol/storage_slc01");
+    if (mountRes == MOCHA_RESULT_SUCCESS || mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
+        if (!sDevoptabsInitialized)
+            WHBLogPrintf("SLC filesystem mounted successfully");
         PathConverter::AddRootDirectory("storage_slc");
     }
-    
-    mountRes = Mocha_MountFS("storage_mlc", nullptr, "/vol/storage_mlc01");
-    if (mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
-        mountRes = Mocha_MountFS("storage_mlc", nullptr, "/vol/storage_mlc01");
-    }
-    if (mountRes == MOCHA_RESULT_SUCCESS) {
-        WHBLogPrintf("MLC filesystem mounted successfully");
+
+    mountRes = oneTimeMount("storage_mlc", "/vol/storage_mlc01");
+    if (mountRes == MOCHA_RESULT_SUCCESS || mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
+        if (!sDevoptabsInitialized)
+            WHBLogPrintf("MLC filesystem mounted successfully");
         PathConverter::AddRootDirectory("storage_mlc");
     }
     
-    mountRes = Mocha_MountFS("storage_usb", nullptr, "/vol/storage_usb01");
-    if (mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
-        mountRes = Mocha_MountFS("storage_usb", nullptr, "/vol/storage_usb01");
+    mountRes = oneTimeMount("storage_odd_tickets", "/vol/storage_odd01");
+    if (mountRes == MOCHA_RESULT_SUCCESS || mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
+        if (!sDevoptabsInitialized)
+            WHBLogPrintf("storage_odd_tickets mounted successfully");
+        PathConverter::AddRootDirectory("storage_odd_tickets");
     }
-    if (mountRes == MOCHA_RESULT_SUCCESS) {
-        WHBLogPrintf("USB filesystem mounted successfully");
-        PathConverter::AddRootDirectory("storage_usb");
+    
+    mountRes = oneTimeMount("storage_odd_updates", "/vol/storage_odd02");
+    if (mountRes == MOCHA_RESULT_SUCCESS || mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
+        if (!sDevoptabsInitialized)
+            WHBLogPrintf("storage_odd_updates mounted successfully");
+        PathConverter::AddRootDirectory("storage_odd_updates");
     }
+    
+    mountRes = oneTimeMount("storage_odd_content", "/vol/storage_odd03");
+    if (mountRes == MOCHA_RESULT_SUCCESS || mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
+        if (!sDevoptabsInitialized)
+            WHBLogPrintf("storage_odd_content mounted successfully");
+        PathConverter::AddRootDirectory("storage_odd_content");
+    }
+    
+    mountRes = oneTimeMount("storage_odd_content2", "/vol/storage_odd04");
+    if (mountRes == MOCHA_RESULT_SUCCESS || mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
+        if (!sDevoptabsInitialized)
+            WHBLogPrintf("storage_odd_content2 mounted successfully");
+        PathConverter::AddRootDirectory("storage_odd_content2");
+    }
+    
+    mountRes = oneTimeMount("storage_usb", "/vol/storage_usb01");
+    if (mountRes == MOCHA_RESULT_SUCCESS || mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
+        DIR* testDir = opendir("storage_usb:/");
+        if (testDir) {
+            closedir(testDir);
+            WHBLogPrintf("WFS USB detected at /vol/storage_usb01");
+            PathConverter::AddRootDirectory("storage_usb");
+        } else {
+            WHBLogPrintf("No WFS USB at /vol/storage_usb01 — cleaning up");
+            if (!sDevoptabsInitialized)
+                Mocha_UnmountFS("storage_usb");
+        }
+    }
+
+    MountFatUsb();
+
+    mountRes = oneTimeMount("storage_sd", "/vol/external01");
+    if (mountRes == MOCHA_RESULT_SUCCESS || mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
+        DIR* testDir = opendir("storage_sd:/");
+        if (testDir) {
+            closedir(testDir);
+            WHBLogPrintf("SD card accessible via storage_sd:/");
+            PathConverter::AddRootDirectory("storage_sd");
+        } else {
+            WHBLogPrintf("SD card /vol/external01 not accessible via FSA — cleaning up");
+            if (!sDevoptabsInitialized)
+                Mocha_UnmountFS("storage_sd");
+        }
+    }
+
+    sDevoptabsInitialized = true;
+}
+
+bool FilesystemManager::MountFatUsb() {
+    WHBLogPrintf("Attempting to mount FAT32 USB drive...");
+    return FatUsbManager::MountUSBDrive(1);
+}
+
+void FilesystemManager::UnmountFatUsb() {
+    WHBLogPrintf("Unmounting FAT32 USB drive...");
+    FatUsbManager::UnmountUSBDrive(1);
+}
+
+bool FilesystemManager::IsFatUsbMounted() {
+    return FatUsbManager::IsMounted(1);
 }
 
 void FilesystemManager::UnmountAllFilesystems() {
@@ -107,16 +142,23 @@ void FilesystemManager::UnmountAllFilesystems() {
         return;
     }
     
-    WHBLogPrintf("Unmounting all filesystems...");
+    WHBLogPrintf("[unmount] Unmounting all filesystems...");
+
+    WHBLogPrintf("[unmount] Raw FAT32 USB...");
+    UnmountFatUsb();
     
-    Mocha_UnmountFS("slccmpt01");
-    Mocha_UnmountFS("storage_odd_tickets");
-    Mocha_UnmountFS("storage_odd_updates");
-    Mocha_UnmountFS("storage_odd_content");
-    Mocha_UnmountFS("storage_odd_content2");
-    Mocha_UnmountFS("storage_slc");
-    Mocha_UnmountFS("storage_mlc");
-    Mocha_UnmountFS("storage_usb");
+    WHBLogPrintf("[unmount] Mocha volumes...");
+    Mocha_UnmountFS("storage_odd_tickets"); WHBLogPrintf("[unmount] storage_odd_tickets done");
+    Mocha_UnmountFS("storage_odd_updates"); WHBLogPrintf("[unmount] storage_odd_updates done");
+    Mocha_UnmountFS("storage_odd_content"); WHBLogPrintf("[unmount] storage_odd_content done");
+    Mocha_UnmountFS("storage_odd_content2"); WHBLogPrintf("[unmount] storage_odd_content2 done");
+    Mocha_UnmountFS("storage_usb"); WHBLogPrintf("[unmount] storage_usb done");
+    Mocha_UnmountFS("storage_sd"); WHBLogPrintf("[unmount] storage_sd done");
+    Mocha_UnmountFS("slccmpt01"); WHBLogPrintf("[unmount] slccmpt01 done");
+    Mocha_UnmountFS("storage_slc"); WHBLogPrintf("[unmount] storage_slc done");
+    Mocha_UnmountFS("storage_mlc"); WHBLogPrintf("[unmount] storage_mlc done");
+    
+    WHBLogPrintf("[unmount] All filesystems unmounted");
 }
 
 void FilesystemManager::Shutdown() {
