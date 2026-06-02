@@ -85,7 +85,6 @@ void FileManagerScreen::Draw() {
     Gfx::Clear(Gfx::COLOR_BACKGROUND);
     
     DrawTopBar(mFileManager.GetCurrentPath().c_str());
-    Gfx::Print(Gfx::SCREEN_WIDTH / 2, 40, 48, Gfx::COLOR_TEXT, "Cafe-Xplorer", Gfx::ALIGN_CENTER);
     
     std::string leftText = "A: Select  X: Menu  Y: Settings";
     if (mFileManager.HasMoreEntries()) {

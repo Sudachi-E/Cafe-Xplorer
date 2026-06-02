@@ -6,6 +6,7 @@
 #include <dirent.h>
 
 bool FilesystemManager::sMochaInitialized = false;
+int FilesystemManager::sFatUsbDriveIndex = -1;
 
 void FilesystemManager::Initialize() {
     if (!sMochaInitialized) {
@@ -89,18 +90,24 @@ void FilesystemManager::MountAllFilesystems() {
             WHBLogPrintf("storage_odd_content2 mounted successfully");
         PathConverter::AddRootDirectory("storage_odd_content2");
     }
-    
-    mountRes = oneTimeMount("storage_usb", "/vol/storage_usb01");
-    if (mountRes == MOCHA_RESULT_SUCCESS || mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
-        DIR* testDir = opendir("storage_usb:/");
-        if (testDir) {
-            closedir(testDir);
-            WHBLogPrintf("WFS USB detected at /vol/storage_usb01");
-            PathConverter::AddRootDirectory("storage_usb");
-        } else {
-            WHBLogPrintf("No WFS USB at /vol/storage_usb01 — cleaning up");
-            if (!sDevoptabsInitialized)
-                Mocha_UnmountFS("storage_usb");
+
+    const char* wfsPaths[] = {"/vol/storage_usb01", "/vol/storage_usb02"};
+    for (int i = 0; i < 2; i++) {
+        char name[32];
+        snprintf(name, sizeof(name), "storage_wfs", i + 1);
+        mountRes = oneTimeMount(name, wfsPaths[i]);
+        if (mountRes == MOCHA_RESULT_SUCCESS || mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
+            std::string dirPath = std::string(name) + ":/";
+            DIR* testDir = opendir(dirPath.c_str());
+            if (testDir) {
+                closedir(testDir);
+                WHBLogPrintf("WFS USB detected at %s", wfsPaths[i]);
+                PathConverter::AddRootDirectory(name);
+            } else {
+                WHBLogPrintf("No WFS USB at %s — cleaning up", wfsPaths[i]);
+                if (!sDevoptabsInitialized)
+                    Mocha_UnmountFS(name);
+            }
         }
     }
 
@@ -125,16 +132,30 @@ void FilesystemManager::MountAllFilesystems() {
 
 bool FilesystemManager::MountFatUsb() {
     WHBLogPrintf("Attempting to mount FAT32 USB drive...");
-    return FatUsbManager::MountUSBDrive(1);
+    if (FatUsbManager::MountUSBDrive(1)) {
+        sFatUsbDriveIndex = 1;
+        return true;
+    }
+    if (FatUsbManager::MountUSBDrive(2)) {
+        sFatUsbDriveIndex = 2;
+        return true;
+    }
+    sFatUsbDriveIndex = -1;
+    return false;
 }
 
 void FilesystemManager::UnmountFatUsb() {
-    WHBLogPrintf("Unmounting FAT32 USB drive...");
-    FatUsbManager::UnmountUSBDrive(1);
+    if (sFatUsbDriveIndex < 0) {
+        WHBLogPrintf("No FAT32 drive to unmount");
+        return;
+    }
+    WHBLogPrintf("Unmounting FAT32 USB drive %d...", sFatUsbDriveIndex);
+    FatUsbManager::UnmountUSBDrive(sFatUsbDriveIndex);
+    sFatUsbDriveIndex = -1;
 }
 
 bool FilesystemManager::IsFatUsbMounted() {
-    return FatUsbManager::IsMounted(1);
+    return sFatUsbDriveIndex >= 0 && FatUsbManager::IsMounted(sFatUsbDriveIndex);
 }
 
 void FilesystemManager::UnmountAllFilesystems() {
@@ -152,7 +173,8 @@ void FilesystemManager::UnmountAllFilesystems() {
     Mocha_UnmountFS("storage_odd_updates"); WHBLogPrintf("[unmount] storage_odd_updates done");
     Mocha_UnmountFS("storage_odd_content"); WHBLogPrintf("[unmount] storage_odd_content done");
     Mocha_UnmountFS("storage_odd_content2"); WHBLogPrintf("[unmount] storage_odd_content2 done");
-    Mocha_UnmountFS("storage_usb"); WHBLogPrintf("[unmount] storage_usb done");
+    Mocha_UnmountFS("storage_usb01"); WHBLogPrintf("[unmount] storage_usb01 done");
+    Mocha_UnmountFS("storage_usb02"); WHBLogPrintf("[unmount] storage_usb02 done");
     Mocha_UnmountFS("storage_sd"); WHBLogPrintf("[unmount] storage_sd done");
     Mocha_UnmountFS("slccmpt01"); WHBLogPrintf("[unmount] slccmpt01 done");
     Mocha_UnmountFS("storage_slc"); WHBLogPrintf("[unmount] storage_slc done");
