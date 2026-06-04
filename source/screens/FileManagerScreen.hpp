@@ -3,6 +3,7 @@
 #include "../Screen.hpp"
 #include "../filemanager/FileManager.h"
 #include <memory>
+#include <set>
 
 class TextEditorScreen;
 class ImageViewerScreen;
@@ -49,12 +50,23 @@ private:
     float mHoldTimer;
     float mRepeatAccum;
     
-    // Copy progress modal state
     bool mShowCopyProgressModal;
     uint64_t mCopyProgressBytes;
     uint64_t mCopyProgressTotal;
     std::string mCopyProgressName;
     
+    bool mShowDeleteConfirmModal;
+    int mDeleteConfirmSelection;
+    std::vector<std::string> mPendingDeletePaths;
+    std::vector<bool> mPendingDeleteIsDirectories;
+    std::vector<std::string> mPendingDeleteFileNames;
+    
+    bool mSelectionMode;
+    std::set<size_t> mSelectedIndices;
+    std::vector<std::string> mMultiClipboardPaths;
+    std::vector<bool> mMultiClipboardIsDirectory;
+    bool mMultiClipboardIsMove;
+
     static std::string FormatSize(size_t bytes);
     static bool IsTextFile(const std::string& filename);
     static bool IsImageFile(const std::string& filename);
@@ -64,6 +76,7 @@ private:
     static bool IsWUHBFile(const std::string& filename);
     void DrawContextMenu();
     void DrawDeletionModal();
+    void DrawDeleteConfirmModal();
     void DrawLoadingModal();
     void DrawLaunchConfirmModal();
     void DrawCopyProgressModal();

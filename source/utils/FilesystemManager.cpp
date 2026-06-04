@@ -91,22 +91,25 @@ void FilesystemManager::MountAllFilesystems() {
         PathConverter::AddRootDirectory("storage_odd_content2");
     }
 
-    const char* wfsPaths[] = {"/vol/storage_usb01", "/vol/storage_usb02"};
-    for (int i = 0; i < 2; i++) {
-        char name[32];
-        snprintf(name, sizeof(name), "storage_wfs", i + 1);
-        mountRes = oneTimeMount(name, wfsPaths[i]);
-        if (mountRes == MOCHA_RESULT_SUCCESS || mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
-            std::string dirPath = std::string(name) + ":/";
-            DIR* testDir = opendir(dirPath.c_str());
-            if (testDir) {
-                closedir(testDir);
-                WHBLogPrintf("WFS USB detected at %s", wfsPaths[i]);
-                PathConverter::AddRootDirectory(name);
-            } else {
-                WHBLogPrintf("No WFS USB at %s — cleaning up", wfsPaths[i]);
-                if (!sDevoptabsInitialized)
-                    Mocha_UnmountFS(name);
+    // Mount WFS volumes first (must happen before raw I/O which corrupts FSA)
+    {
+        const char* wfsPaths[] = {"/vol/storage_usb01", "/vol/storage_usb02"};
+        for (int i = 0; i < 2; i++) {
+            char name[32];
+            snprintf(name, sizeof(name), "storage_usb%02d", i + 1);
+            mountRes = oneTimeMount(name, wfsPaths[i]);
+            if (mountRes == MOCHA_RESULT_SUCCESS || mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
+                std::string dirPath = std::string(name) + ":/";
+                DIR* testDir = opendir(dirPath.c_str());
+                if (testDir) {
+                    closedir(testDir);
+                    WHBLogPrintf("WFS USB detected at %s as %s", wfsPaths[i], name);
+                    PathConverter::AddRootDirectory(name);
+                } else {
+                    WHBLogPrintf("No WFS USB at %s — cleaning up", wfsPaths[i]);
+                    if (!sDevoptabsInitialized)
+                        Mocha_UnmountFS(name);
+                }
             }
         }
     }

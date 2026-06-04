@@ -34,7 +34,7 @@ static bool IsPdfFile(const std::string& filename) {
     return lower.ends_with(".pdf");
 }
 
-FileManagerScreen::FileManagerScreen() : mSelectedIndex(0), mScrollOffset(0), mShowContextMenu(false), mContextMenuSelection(0), mClipboardIsDirectory(false), mClipboardIsMove(false), mShowDeletionModal(false), mShowLoadingModal(false), mLoadingStartTime(0), mShowLaunchConfirmModal(false), mLaunchModalSelection(0), mLastUpdateTick(0), mHoldTimer(0.0f), mRepeatAccum(0.0f), mShowCopyProgressModal(false), mCopyProgressBytes(0), mCopyProgressTotal(0) {
+FileManagerScreen::FileManagerScreen() : mSelectedIndex(0), mScrollOffset(0), mShowContextMenu(false), mContextMenuSelection(0), mClipboardIsDirectory(false), mClipboardIsMove(false), mShowDeletionModal(false), mShowLoadingModal(false), mLoadingStartTime(0), mShowLaunchConfirmModal(false), mLaunchModalSelection(0), mLastUpdateTick(0), mHoldTimer(0.0f), mRepeatAccum(0.0f), mShowCopyProgressModal(false), mCopyProgressBytes(0), mCopyProgressTotal(0), mShowDeleteConfirmModal(false), mDeleteConfirmSelection(0), mSelectionMode(false), mMultiClipboardIsMove(false) {
     Settings::Initialize();
     
     if (Settings::GetFullFilesystemAccess()) {
@@ -85,8 +85,20 @@ void FileManagerScreen::Draw() {
     Gfx::Clear(Gfx::COLOR_BACKGROUND);
     
     DrawTopBar(mFileManager.GetCurrentPath().c_str());
+
+    if (mSelectionMode) {
+        std::ostringstream sel;
+        sel << "Selected: " << mSelectedIndices.size() << " / " << mFileManager.GetEntries().size();
+        Gfx::Print(Gfx::SCREEN_WIDTH - 40, 40, 32,
+                   Gfx::COLOR_TEXT, sel.str(), Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
+    }
     
-    std::string leftText = "A: Select  X: Menu  Y: Settings";
+    std::string leftText;
+    if (mSelectionMode) {
+        leftText = "A: Toggle  X: Actions";
+    } else {
+        leftText = "A: Select  X: Menu  Y: Settings";
+    }
     if (mFileManager.HasMoreEntries()) {
         std::ostringstream oss;
         oss << "Loaded " << mFileManager.GetEntries().size() << "/" << mFileManager.GetTotalEntryCount();
@@ -114,18 +126,34 @@ void FileManagerScreen::Draw() {
         
         for (size_t i = mScrollOffset; i < entries.size() && i < mScrollOffset + visibleItems; i++) {
             bool isSelected = (i == mSelectedIndex);
+            bool isCheckSelected = mSelectionMode && mSelectedIndices.count(i) > 0;
             
             if (isSelected) {
                 Gfx::DrawRectFilled(0, y - 5, Gfx::SCREEN_WIDTH, itemHeight, Gfx::COLOR_HIGHLIGHTED);
             } else {
-                // Draw subtle background for non-selected items
                 Gfx::DrawRectFilled(0, y - 5, Gfx::SCREEN_WIDTH, itemHeight, Gfx::COLOR_ALT_BACKGROUND);
+            }
+            
+            int textX = 40;
+            if (mSelectionMode) {
+                textX = 70;
+                int boxSize = 30;
+                int boxX = 15;
+                int boxY = y + (itemHeight - boxSize) / 2;
+                Gfx::DrawRectFilled(boxX, boxY, boxSize, boxSize, Gfx::COLOR_BACKGROUND);
+                if (isCheckSelected) {
+                    Gfx::DrawRectFilled(boxX + 4, boxY + 4, boxSize - 8, boxSize - 8, Gfx::COLOR_HIGHLIGHTED);
+                }
+                Gfx::DrawRectFilled(boxX, boxY, boxSize, 2, Gfx::COLOR_WHITE);
+                Gfx::DrawRectFilled(boxX, boxY + boxSize - 2, boxSize, 2, Gfx::COLOR_WHITE);
+                Gfx::DrawRectFilled(boxX, boxY, 2, boxSize, Gfx::COLOR_WHITE);
+                Gfx::DrawRectFilled(boxX + boxSize - 2, boxY, 2, boxSize, Gfx::COLOR_WHITE);
             }
             
             std::string displayName = entries[i].isDirectory ? "[DIR] " : "      ";
             displayName += entries[i].name;
             
-            Gfx::Print(40, y + 20, 36, isSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT, 
+            Gfx::Print(textX, y + 20, 36, isSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT, 
                        displayName, Gfx::ALIGN_LEFT | Gfx::ALIGN_VERTICAL);
             
             if (!entries[i].isDirectory) {
@@ -142,6 +170,10 @@ void FileManagerScreen::Draw() {
             Gfx::Print(Gfx::SCREEN_WIDTH / 2, y + 20, 36, 
                        Gfx::COLOR_ALT_TEXT, "Loading more...", Gfx::ALIGN_CENTER);
         }
+    }
+    
+    if (mShowDeleteConfirmModal) {
+        DrawDeleteConfirmModal();
     }
     
     if (mShowContextMenu) {
@@ -184,6 +216,36 @@ bool FileManagerScreen::Update(Input &input) {
             mLaunchModalSelection = 0;
         }
         
+        return true;
+    }
+    
+    if (mShowDeleteConfirmModal) {
+        if (input.data.buttons_d & Input::BUTTON_LEFT || input.data.buttons_d & Input::BUTTON_RIGHT) {
+            mDeleteConfirmSelection = 1 - mDeleteConfirmSelection;
+        }
+        if (input.data.buttons_d & Input::BUTTON_A) {
+            mShowDeleteConfirmModal = false;
+            if (mDeleteConfirmSelection == 1) {
+                for (size_t i = 0; i < mPendingDeletePaths.size(); i++) {
+                    mDeletionFileName = mPendingDeleteFileNames[i];
+                    mShowDeletionModal = true;
+                    Draw();
+                    Gfx::Render();
+                    mFileManager.DeleteEntry(mPendingDeletePaths[i], mPendingDeleteIsDirectories[i]);
+                    mShowDeletionModal = false;
+                }
+                mFileManager.ScanDirectory(mFileManager.GetCurrentPath());
+            }
+            mPendingDeletePaths.clear();
+            mPendingDeleteIsDirectories.clear();
+            mPendingDeleteFileNames.clear();
+        }
+        if (input.data.buttons_d & Input::BUTTON_B) {
+            mShowDeleteConfirmModal = false;
+            mPendingDeletePaths.clear();
+            mPendingDeleteIsDirectories.clear();
+            mPendingDeleteFileNames.clear();
+        }
         return true;
     }
     
@@ -268,120 +330,187 @@ bool FileManagerScreen::Update(Input &input) {
         return true;
     }
     
+    int contextMenuOptionCount = mSelectionMode ? 5 : 8;
+    
     if (mShowContextMenu) {
         if (input.data.buttons_d & Input::BUTTON_DOWN) {
-            mContextMenuSelection = (mContextMenuSelection + 1) % 7;
+            mContextMenuSelection = (mContextMenuSelection + 1) % contextMenuOptionCount;
         }
         if (input.data.buttons_d & Input::BUTTON_UP) {
-            mContextMenuSelection = (mContextMenuSelection - 1 + 7) % 7;
+            mContextMenuSelection = (mContextMenuSelection - 1 + contextMenuOptionCount) % contextMenuOptionCount;
         }
         
         if (input.data.buttons_d & Input::BUTTON_A) {
             mShowContextMenu = false;
             
-            if (mContextMenuSelection == 0) {
-                Keyboard::RequestKeyboard("", "Enter filename", [this](bool confirmed, const std::string& text) {
-                    if (confirmed && !text.empty()) {
-                        CreateNewFile(text);
+            if (mSelectionMode) {
+                const auto& selEntries = mFileManager.GetEntries();
+                if (selEntries.empty()) return true;
+                
+                if (mContextMenuSelection == 0) {
+                    // Copy Selected
+                    mMultiClipboardPaths.clear();
+                    mMultiClipboardIsDirectory.clear();
+                    for (size_t idx : mSelectedIndices) {
+                        if (idx < selEntries.size()) {
+                            mMultiClipboardPaths.push_back(selEntries[idx].path);
+                            mMultiClipboardIsDirectory.push_back(selEntries[idx].isDirectory);
+                        }
                     }
-                });
-            } else if (mContextMenuSelection == 1) {
-                Keyboard::RequestKeyboard("", "Enter folder name", [this](bool confirmed, const std::string& text) {
-                    if (confirmed && !text.empty()) {
-                        CreateNewFolder(text);
+                    mMultiClipboardIsMove = false;
+                    mSelectionMode = false;
+                    mSelectedIndices.clear();
+                } else if (mContextMenuSelection == 1) {
+                    // Move Selected
+                    mMultiClipboardPaths.clear();
+                    mMultiClipboardIsDirectory.clear();
+                    for (size_t idx : mSelectedIndices) {
+                        if (idx < selEntries.size()) {
+                            mMultiClipboardPaths.push_back(selEntries[idx].path);
+                            mMultiClipboardIsDirectory.push_back(selEntries[idx].isDirectory);
+                        }
                     }
-                });
-            } else if (mContextMenuSelection == 2) {
-                const auto& entries = mFileManager.GetEntries();
-                if (!entries.empty() && mSelectedIndex < entries.size()) {
-                    const auto& entry = entries[mSelectedIndex];
-                    mClipboardPath = entry.path;
-                    mClipboardIsDirectory = entry.isDirectory;
-                    mClipboardIsMove = false;
-                }
-            } else if (mContextMenuSelection == 3) {
-                const auto& entries = mFileManager.GetEntries();
-                if (!entries.empty() && mSelectedIndex < entries.size()) {
-                    const auto& entry = entries[mSelectedIndex];
-                    mClipboardPath = entry.path;
-                    mClipboardIsDirectory = entry.isDirectory;
-                    mClipboardIsMove = true;
-                }
-            } else if (mContextMenuSelection == 4) {
-                if (!mClipboardPath.empty()) {
-                    size_t lastSlash = mClipboardPath.find_last_of('/');
-                    mCopyProgressName = (lastSlash != std::string::npos)
-                        ? mClipboardPath.substr(lastSlash + 1)
-                        : mClipboardPath;
-                    mCopyProgressBytes = 0;
-                    mCopyProgressTotal = 0;
-                    mShowCopyProgressModal = true;
-
-                    Draw();
-                    Gfx::Render();
-
-                    bool success = false;
-                    if (mClipboardIsMove) {
-                        mFileManager.SetCopyProgressCallback([this](uint64_t copied, uint64_t total) {
-                            mCopyProgressBytes = copied;
-                            mCopyProgressTotal = total;
-                            Draw();
-                            Gfx::Render();
-                        });
-                        success = mFileManager.MoveEntry(mClipboardPath, mFileManager.GetCurrentPath(), mClipboardIsDirectory);
-                        mFileManager.SetCopyProgressCallback(nullptr);
+                    mMultiClipboardIsMove = true;
+                    mSelectionMode = false;
+                    mSelectedIndices.clear();
+                } else if (mContextMenuSelection == 2) {
+                    // Delete Selected
+                    mPendingDeletePaths.clear();
+                    mPendingDeleteIsDirectories.clear();
+                    mPendingDeleteFileNames.clear();
+                    for (size_t idx : mSelectedIndices) {
+                        if (idx < selEntries.size()) {
+                            mPendingDeletePaths.push_back(selEntries[idx].path);
+                            mPendingDeleteIsDirectories.push_back(selEntries[idx].isDirectory);
+                            mPendingDeleteFileNames.push_back(selEntries[idx].name);
+                        }
+                    }
+                    mShowDeleteConfirmModal = true;
+                    mDeleteConfirmSelection = 0;
+                    mSelectionMode = false;
+                    mSelectedIndices.clear();
+                    mFileManager.ScanDirectory(mFileManager.GetCurrentPath());
+                } else if (mContextMenuSelection == 3) {
+                    // Select All / Deselect All
+                    if (mSelectedIndices.size() == selEntries.size()) {
+                        mSelectedIndices.clear();
                     } else {
-                        mFileManager.SetCopyProgressCallback([this](uint64_t copied, uint64_t total) {
-                            mCopyProgressBytes = copied;
-                            mCopyProgressTotal = total;
-                            Draw();
-                            Gfx::Render();
-                        });
-                        success = mFileManager.PasteEntry(mClipboardPath, mFileManager.GetCurrentPath(), mClipboardIsDirectory);
-                        mFileManager.SetCopyProgressCallback(nullptr);
+                        for (size_t idx = 0; idx < selEntries.size(); idx++) {
+                            mSelectedIndices.insert(idx);
+                        }
                     }
-
-                    mShowCopyProgressModal = false;
-
-                    if (success) {
-                        mClipboardPath.clear();
-                        mClipboardIsDirectory = false;
-                        mClipboardIsMove = false;
-                        mFileManager.ScanDirectory(mFileManager.GetCurrentPath());
-                    }
+                    mShowContextMenu = true;
+                    mContextMenuSelection = 0;
+                } else if (mContextMenuSelection == 4) {
+                    // Exit Selection
+                    mSelectionMode = false;
+                    mSelectedIndices.clear();
                 }
-            } else if (mContextMenuSelection == 5) {
-                const auto& entries = mFileManager.GetEntries();
-                if (!entries.empty() && mSelectedIndex < entries.size()) {
-                    const auto& entry = entries[mSelectedIndex];
-                    Keyboard::RequestKeyboard(entry.name, "Enter new name", [this, entry](bool confirmed, const std::string& text) {
+            } else {
+                if (mContextMenuSelection == 0) {
+                    Keyboard::RequestKeyboard("", "Enter filename", [this](bool confirmed, const std::string& text) {
                         if (confirmed && !text.empty()) {
-                            if (mFileManager.RenameEntry(entry.path, text)) {
-                                mFileManager.ScanDirectory(mFileManager.GetCurrentPath());
-                            }
+                            CreateNewFile(text);
                         }
                     });
-                }
-            } else if (mContextMenuSelection == 6) {
-                const auto& entries = mFileManager.GetEntries();
-                if (!entries.empty() && mSelectedIndex < entries.size()) {
-                    const auto& entry = entries[mSelectedIndex];
-                    
-                    mDeletionFileName = entry.name;
-                    mShowDeletionModal = true;
-                    
-                    Draw();
-                    Gfx::Render();
-                    
-                    if (mFileManager.DeleteEntry(entry.path, entry.isDirectory)) {
-                        mFileManager.ScanDirectory(mFileManager.GetCurrentPath());
-                        const auto& newEntries = mFileManager.GetEntries();
-                        if (mSelectedIndex >= newEntries.size() && !newEntries.empty()) {
-                            mSelectedIndex = newEntries.size() - 1;
+                } else if (mContextMenuSelection == 1) {
+                    Keyboard::RequestKeyboard("", "Enter folder name", [this](bool confirmed, const std::string& text) {
+                        if (confirmed && !text.empty()) {
+                            CreateNewFolder(text);
                         }
+                    });
+                } else if (mContextMenuSelection == 2) {
+                    // Select — enter selection mode
+                    mSelectionMode = true;
+                    mSelectedIndices.clear();
+                } else if (mContextMenuSelection == 3) {
+                    const auto& entries = mFileManager.GetEntries();
+                    if (!entries.empty() && mSelectedIndex < entries.size()) {
+                        const auto& entry = entries[mSelectedIndex];
+                        mClipboardPath = entry.path;
+                        mClipboardIsDirectory = entry.isDirectory;
+                        mClipboardIsMove = false;
                     }
-                    
-                    mShowDeletionModal = false;
+                } else if (mContextMenuSelection == 4) {
+                    const auto& entries = mFileManager.GetEntries();
+                    if (!entries.empty() && mSelectedIndex < entries.size()) {
+                        const auto& entry = entries[mSelectedIndex];
+                        mClipboardPath = entry.path;
+                        mClipboardIsDirectory = entry.isDirectory;
+                        mClipboardIsMove = true;
+                    }
+                } else if (mContextMenuSelection == 5) {
+                    auto doPaste = [&](const std::string& srcPath, bool isDir) {
+                        size_t lastSlash = srcPath.find_last_of('/');
+                        mCopyProgressName = (lastSlash != std::string::npos)
+                            ? srcPath.substr(lastSlash + 1) : srcPath;
+                        mCopyProgressBytes = 0;
+                        mCopyProgressTotal = 0;
+                        mShowCopyProgressModal = true;
+                        Draw();
+                        Gfx::Render();
+                        bool success = false;
+                        if (mClipboardIsMove) {
+                            mFileManager.SetCopyProgressCallback([this](uint64_t copied, uint64_t total) {
+                                mCopyProgressBytes = copied; mCopyProgressTotal = total;
+                                Draw(); Gfx::Render();
+                            });
+                            success = mFileManager.MoveEntry(srcPath, mFileManager.GetCurrentPath(), isDir);
+                            mFileManager.SetCopyProgressCallback(nullptr);
+                        } else {
+                            mFileManager.SetCopyProgressCallback([this](uint64_t copied, uint64_t total) {
+                                mCopyProgressBytes = copied; mCopyProgressTotal = total;
+                                Draw(); Gfx::Render();
+                            });
+                            success = mFileManager.PasteEntry(srcPath, mFileManager.GetCurrentPath(), isDir);
+                            mFileManager.SetCopyProgressCallback(nullptr);
+                        }
+                        mShowCopyProgressModal = false;
+                        return success;
+                    };
+                    if (!mMultiClipboardPaths.empty()) {
+                        // Multi-clipboard paste
+                        for (size_t i = 0; i < mMultiClipboardPaths.size(); i++) {
+                            doPaste(mMultiClipboardPaths[i], mMultiClipboardIsDirectory[i]);
+                        }
+                        if (mMultiClipboardIsMove) {
+                            mMultiClipboardPaths.clear();
+                            mMultiClipboardIsDirectory.clear();
+                            mMultiClipboardIsMove = false;
+                        }
+                        mFileManager.ScanDirectory(mFileManager.GetCurrentPath());
+                    } else if (!mClipboardPath.empty()) {
+                        // Single clipboard paste (backward compat)
+                        doPaste(mClipboardPath, mClipboardIsDirectory);
+                        if (mClipboardIsMove) {
+                            mClipboardPath.clear();
+                            mClipboardIsDirectory = false;
+                            mClipboardIsMove = false;
+                        }
+                        mFileManager.ScanDirectory(mFileManager.GetCurrentPath());
+                    }
+                } else if (mContextMenuSelection == 6) {
+                    const auto& entries = mFileManager.GetEntries();
+                    if (!entries.empty() && mSelectedIndex < entries.size()) {
+                        const auto& entry = entries[mSelectedIndex];
+                        Keyboard::RequestKeyboard(entry.name, "Enter new name", [this, entry](bool confirmed, const std::string& text) {
+                            if (confirmed && !text.empty()) {
+                                if (mFileManager.RenameEntry(entry.path, text)) {
+                                    mFileManager.ScanDirectory(mFileManager.GetCurrentPath());
+                                }
+                            }
+                        });
+                    }
+                } else if (mContextMenuSelection == 7) {
+                    const auto& entries = mFileManager.GetEntries();
+                    if (!entries.empty() && mSelectedIndex < entries.size()) {
+                        const auto& entry = entries[mSelectedIndex];
+                        mPendingDeletePaths = {entry.path};
+                        mPendingDeleteIsDirectories = {entry.isDirectory};
+                        mPendingDeleteFileNames = {entry.name};
+                        mShowDeleteConfirmModal = true;
+                        mDeleteConfirmSelection = 0;
+                    }
                 }
             }
         }
@@ -446,54 +575,68 @@ bool FileManagerScreen::Update(Input &input) {
     
     if (input.data.buttons_d & Input::BUTTON_A) {
         if (!entries.empty() && mSelectedIndex < entries.size()) {
-            const auto& entry = entries[mSelectedIndex];
-            if (entry.isDirectory) {
-                mLastVisitedDir = entry.name;
-                std::string dirPath = entry.path;
-                
-                if (ScanDirectoryWithModal(dirPath)) {
-                    mSelectedIndex = 0;
-                    mScrollOffset = 0;
+            if (mSelectionMode) {
+                size_t idx = mSelectedIndex;
+                if (mSelectedIndices.count(idx)) {
+                    mSelectedIndices.erase(idx);
+                } else {
+                    mSelectedIndices.insert(idx);
                 }
             } else {
-                if (IsTextFile(entry.name)) {
-                    mTextEditor = std::make_unique<TextEditorScreen>(entry.path);
-                }
-                else if (IsImageFile(entry.name)) {
-                    mImageViewer = std::make_unique<ImageViewerScreen>(entry.path);
-                }
-                else if (IsGifFile(entry.name)) {
-                    mGifViewer = std::make_unique<GifViewerScreen>(entry.path);
-                }
-                else if (IsPdfFile(entry.name)) {
-                    mPdfViewer = std::make_unique<PdfViewerScreen>(entry.path);
-                }
-                else if (IsVideoFile(entry.name)) {
-                    WHBLogPrintf("===========================================");
-                    WHBLogPrintf("VIDEO FILE SELECTED");
-                    WHBLogPrintf("===========================================");
-                    WHBLogPrintf("File name: %s", entry.name.c_str());
-                    WHBLogPrintf("Full path: %s", entry.path.c_str());
-                    WHBLogPrintf("File size: %u bytes", (unsigned int)entry.size);
-                    WHBLogPrintf("Creating VideoPlayerScreen...");
-                    mVideoPlayer = std::make_unique<VideoPlayerScreen>(entry.path);
-                    WHBLogPrintf("VideoPlayerScreen created");
-                    WHBLogPrintf("===========================================");
-                }
-                else if (IsAudioFile(entry.name)) {
-                    mAudioPlayer = std::make_unique<AudioPlayerScreen>(entry.path);
-                }
-                else if (IsRPXFile(entry.name) || IsWUHBFile(entry.name)) {
-                    mLaunchFileName = entry.name;
-                    mLaunchFilePath = entry.path;
-                    mShowLaunchConfirmModal = true;
-                    mLaunchModalSelection = 0;
+                const auto& entry = entries[mSelectedIndex];
+                if (entry.isDirectory) {
+                    mLastVisitedDir = entry.name;
+                    std::string dirPath = entry.path;
+                    
+                    if (ScanDirectoryWithModal(dirPath)) {
+                        mSelectedIndex = 0;
+                        mScrollOffset = 0;
+                    }
+                } else {
+                    if (IsTextFile(entry.name)) {
+                        mTextEditor = std::make_unique<TextEditorScreen>(entry.path);
+                    }
+                    else if (IsImageFile(entry.name)) {
+                        mImageViewer = std::make_unique<ImageViewerScreen>(entry.path);
+                    }
+                    else if (IsGifFile(entry.name)) {
+                        mGifViewer = std::make_unique<GifViewerScreen>(entry.path);
+                    }
+                    else if (IsPdfFile(entry.name)) {
+                        mPdfViewer = std::make_unique<PdfViewerScreen>(entry.path);
+                    }
+                    else if (IsVideoFile(entry.name)) {
+                        WHBLogPrintf("===========================================");
+                        WHBLogPrintf("VIDEO FILE SELECTED");
+                        WHBLogPrintf("===========================================");
+                        WHBLogPrintf("File name: %s", entry.name.c_str());
+                        WHBLogPrintf("Full path: %s", entry.path.c_str());
+                        WHBLogPrintf("File size: %u bytes", (unsigned int)entry.size);
+                        WHBLogPrintf("Creating VideoPlayerScreen...");
+                        mVideoPlayer = std::make_unique<VideoPlayerScreen>(entry.path);
+                        WHBLogPrintf("VideoPlayerScreen created");
+                        WHBLogPrintf("===========================================");
+                    }
+                    else if (IsAudioFile(entry.name)) {
+                        mAudioPlayer = std::make_unique<AudioPlayerScreen>(entry.path);
+                    }
+                    else if (IsRPXFile(entry.name) || IsWUHBFile(entry.name)) {
+                        mLaunchFileName = entry.name;
+                        mLaunchFilePath = entry.path;
+                        mShowLaunchConfirmModal = true;
+                        mLaunchModalSelection = 0;
+                    }
                 }
             }
         }
     }
     
     if (input.data.buttons_d & Input::BUTTON_B) {
+        if (mSelectionMode) {
+            mSelectionMode = false;
+            mSelectedIndices.clear();
+            return true;
+        }
         std::string currentPath = mFileManager.GetCurrentPath();
         if (currentPath != "/" && !currentPath.empty()) {
             mLoadingPath = "..";
@@ -608,84 +751,117 @@ bool FileManagerScreen::IsWUHBFile(const std::string& filename) {
 
 void FileManagerScreen::DrawContextMenu() {
     int menuWidth = 400;
-    int menuHeight = 520;
+    int optionCount = mSelectionMode ? 5 : 8;
+    int menuHeight = 80 + optionCount * 60;
     int menuX = Gfx::SCREEN_WIDTH - menuWidth - 50;
     int menuY = (Gfx::SCREEN_HEIGHT - menuHeight) / 2;
     int borderWidth = 3;
     
     Gfx::DrawRectFilled(menuX, menuY, menuWidth, menuHeight, Gfx::COLOR_ALT_BACKGROUND);
-    Gfx::DrawRectFilled(menuX, menuY, menuWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED); // Top
-    Gfx::DrawRectFilled(menuX, menuY + menuHeight - borderWidth, menuWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED); // Bottom
-    Gfx::DrawRectFilled(menuX, menuY, borderWidth, menuHeight, Gfx::COLOR_HIGHLIGHTED); // Left
-    Gfx::DrawRectFilled(menuX + menuWidth - borderWidth, menuY, borderWidth, menuHeight, Gfx::COLOR_HIGHLIGHTED); // Right
+    Gfx::DrawRectFilled(menuX, menuY, menuWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED);
+    Gfx::DrawRectFilled(menuX, menuY + menuHeight - borderWidth, menuWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED);
+    Gfx::DrawRectFilled(menuX, menuY, borderWidth, menuHeight, Gfx::COLOR_HIGHLIGHTED);
+    Gfx::DrawRectFilled(menuX + menuWidth - borderWidth, menuY, borderWidth, menuHeight, Gfx::COLOR_HIGHLIGHTED);
     
-    int optionY = menuY + 40;
-    int optionSpacing = 60;
-    
-    bool newFileSelected = (mContextMenuSelection == 0);
-    if (newFileSelected) {
-        Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
+    if (mSelectionMode) {
+        Gfx::Print(menuX + menuWidth / 2, menuY + 15, 32,
+                   Gfx::COLOR_ALT_TEXT, "Selection Mode", Gfx::ALIGN_CENTER);
+        
+        int optionY = menuY + 50;
+        int optionSpacing = 60;
+        
+        const char* items[] = {"Copy Selected", "Move Selected", "Delete Selected", "Select / Deselect All", "Exit Selection"};
+        for (int i = 0; i < 5; i++) {
+            bool selected = (mContextMenuSelection == i);
+            if (selected) {
+                Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
+            }
+            Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40,
+                       selected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT,
+                       items[i], Gfx::ALIGN_CENTER);
+            optionY += optionSpacing;
+        }
+    } else {
+        Gfx::Print(menuX + menuWidth / 2, menuY + 15, 32,
+                   Gfx::COLOR_ALT_TEXT, "Menu", Gfx::ALIGN_CENTER);
+        
+        int optionY = menuY + 50;
+        int optionSpacing = 60;
+        
+        bool newFileSelected = (mContextMenuSelection == 0);
+        if (newFileSelected) {
+            Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
+        }
+        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40,
+                   newFileSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT,
+                   "New File", Gfx::ALIGN_CENTER);
+        
+        optionY += optionSpacing;
+        bool newFolderSelected = (mContextMenuSelection == 1);
+        if (newFolderSelected) {
+            Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
+        }
+        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40,
+                   newFolderSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT,
+                   "New Folder", Gfx::ALIGN_CENTER);
+        
+        optionY += optionSpacing;
+        bool selectSelected = (mContextMenuSelection == 2);
+        if (selectSelected) {
+            Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
+        }
+        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40,
+                   selectSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT,
+                   "Select", Gfx::ALIGN_CENTER);
+        
+        optionY += optionSpacing;
+        bool copySelected = (mContextMenuSelection == 3);
+        if (copySelected) {
+            Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
+        }
+        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40,
+                   copySelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT,
+                   "Copy", Gfx::ALIGN_CENTER);
+        
+        optionY += optionSpacing;
+        bool moveSelected = (mContextMenuSelection == 4);
+        if (moveSelected) {
+            Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
+        }
+        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40,
+                   moveSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT,
+                   "Move", Gfx::ALIGN_CENTER);
+        
+        optionY += optionSpacing;
+        bool pasteSelected = (mContextMenuSelection == 5);
+        bool canPaste = !mClipboardPath.empty() || !mMultiClipboardPaths.empty();
+        if (pasteSelected) {
+            Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
+        }
+        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40,
+                   canPaste ? (pasteSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT) : Gfx::COLOR_ALT_TEXT,
+                   "Paste", Gfx::ALIGN_CENTER);
+        
+        optionY += optionSpacing;
+        bool renameSelected = (mContextMenuSelection == 6);
+        if (renameSelected) {
+            Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
+        }
+        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40,
+                   renameSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT,
+                   "Rename", Gfx::ALIGN_CENTER);
+        
+        optionY += optionSpacing;
+        bool deleteSelected = (mContextMenuSelection == 7);
+        if (deleteSelected) {
+            Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
+        }
+        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40,
+                   deleteSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT,
+                   "Delete", Gfx::ALIGN_CENTER);
     }
-    Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40, 
-               newFileSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT, 
-               "New File", Gfx::ALIGN_CENTER);
     
-    optionY += optionSpacing;
-    bool newFolderSelected = (mContextMenuSelection == 1);
-    if (newFolderSelected) {
-        Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
-    }
-    Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40, 
-               newFolderSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT, 
-               "New Folder", Gfx::ALIGN_CENTER);
-    
-    optionY += optionSpacing;
-    bool copySelected = (mContextMenuSelection == 2);
-    if (copySelected) {
-        Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
-    }
-    Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40, 
-               copySelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT, 
-               "Copy", Gfx::ALIGN_CENTER);
-    
-    optionY += optionSpacing;
-    bool moveSelected = (mContextMenuSelection == 3);
-    if (moveSelected) {
-        Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
-    }
-    Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40, 
-               moveSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT, 
-               "Move", Gfx::ALIGN_CENTER);
-    
-    optionY += optionSpacing;
-    bool pasteSelected = (mContextMenuSelection == 4);
-    bool canPaste = !mClipboardPath.empty();
-    if (pasteSelected) {
-        Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
-    }
-    Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40, 
-               canPaste ? (pasteSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT) : Gfx::COLOR_ALT_TEXT, 
-               "Paste", Gfx::ALIGN_CENTER);
-    
-    optionY += optionSpacing;
-    bool renameSelected = (mContextMenuSelection == 5);
-    if (renameSelected) {
-        Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
-    }
-    Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40, 
-               renameSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT, 
-               "Rename", Gfx::ALIGN_CENTER);
-    
-    optionY += optionSpacing;
-    bool deleteSelected = (mContextMenuSelection == 6);
-    if (deleteSelected) {
-        Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
-    }
-    Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40, 
-               deleteSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT, 
-               "Delete", Gfx::ALIGN_CENTER);
-    
-    Gfx::Print(menuX + menuWidth / 2, menuY + menuHeight - 30, 28, 
+    Gfx::Print(menuX + menuWidth / 2, menuY + menuHeight - 30, 28,
                Gfx::COLOR_ALT_TEXT, "A: Select  B: Cancel", Gfx::ALIGN_CENTER);
 }
 
@@ -736,6 +912,57 @@ void FileManagerScreen::DrawDeletionModal() {
     
     Gfx::Print(modalX + modalWidth / 2, modalY + modalHeight / 2 + 30, 40, 
                Gfx::COLOR_ALT_TEXT, "Please Wait...", Gfx::ALIGN_CENTER);
+}
+
+void FileManagerScreen::DrawDeleteConfirmModal() {
+    Gfx::DrawRectFilled(0, 0, Gfx::SCREEN_WIDTH, Gfx::SCREEN_HEIGHT, SDL_Color{0, 0, 0, 180});
+    
+    int modalWidth = 900;
+    int modalHeight = 280;
+    int modalX = (Gfx::SCREEN_WIDTH - modalWidth) / 2;
+    int modalY = (Gfx::SCREEN_HEIGHT - modalHeight) / 2;
+    int borderWidth = 4;
+    
+    Gfx::DrawRectFilled(modalX, modalY, modalWidth, modalHeight, Gfx::COLOR_ALT_BACKGROUND);
+    Gfx::DrawRectFilled(modalX, modalY, modalWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED);
+    Gfx::DrawRectFilled(modalX, modalY + modalHeight - borderWidth, modalWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED);
+    Gfx::DrawRectFilled(modalX, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED);
+    Gfx::DrawRectFilled(modalX + modalWidth - borderWidth, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED);
+    
+    std::string confirmLine = mPendingDeletePaths.size() > 1
+        ? "Are you sure you want to delete the selected files?"
+        : "Are you sure you want to delete?";
+    Gfx::Print(modalX + modalWidth / 2, modalY + 60, 32,
+               Gfx::COLOR_WHITE, confirmLine, Gfx::ALIGN_CENTER);
+    
+    if (mPendingDeletePaths.size() == 1) {
+        Gfx::Print(modalX + modalWidth / 2, modalY + 100, 36,
+                   Gfx::COLOR_ALT_TEXT, mPendingDeleteFileNames[0], Gfx::ALIGN_CENTER);
+    }
+    
+    Gfx::Print(modalX + modalWidth / 2, modalY + 140, 30,
+               Gfx::COLOR_WHITE,
+               mPendingDeletePaths.size() > 1 ? "They will be deleted permanently." : "It will be deleted permanently.",
+               Gfx::ALIGN_CENTER);
+    
+    int buttonY = modalY + 190;
+    int buttonWidth = 200;
+    int buttonHeight = 60;
+    int buttonSpacing = 50;
+    int cancelX = modalX + (modalWidth / 2) - buttonWidth - (buttonSpacing / 2);
+    int deleteX = modalX + (modalWidth / 2) + (buttonSpacing / 2);
+    
+    if (mDeleteConfirmSelection == 0) {
+        Gfx::DrawRectFilled(cancelX, buttonY, buttonWidth, buttonHeight, Gfx::COLOR_HIGHLIGHTED);
+        Gfx::DrawRectFilled(deleteX, buttonY, buttonWidth, buttonHeight, Gfx::COLOR_BARS);
+    } else {
+        Gfx::DrawRectFilled(cancelX, buttonY, buttonWidth, buttonHeight, Gfx::COLOR_BARS);
+        Gfx::DrawRectFilled(deleteX, buttonY, buttonWidth, buttonHeight, Gfx::COLOR_HIGHLIGHTED);
+    }
+    Gfx::Print(cancelX + buttonWidth / 2, buttonY + buttonHeight / 2 + 5, 40,
+               Gfx::COLOR_WHITE, "Cancel", Gfx::ALIGN_CENTER);
+    Gfx::Print(deleteX + buttonWidth / 2, buttonY + buttonHeight / 2 + 5, 40,
+               Gfx::COLOR_WHITE, "Delete", Gfx::ALIGN_CENTER);
 }
 
 void FileManagerScreen::DrawLoadingModal() {
@@ -958,7 +1185,7 @@ void FileManagerScreen::LaunchHomebrew(const std::string& path) {
         // The system will automatically find the game files on USB... hopefully...
         _SYSLaunchTitleWithStdArgsInNoSplash(titleId, nullptr);
         
-        // If we reach here, launch may have failed or is processing
+        // If reached here, launch may have failed or is processing
         WHBLogPrintf("Launch command sent");
         WHBLogPrintf("===========================================");
         return;
