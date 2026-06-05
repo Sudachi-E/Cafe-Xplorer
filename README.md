@@ -6,10 +6,12 @@ A multi-purpose file manager for the Nintendo Wii U.
 
 ### File Management
 - Browse full Wii U filesystem
+- Browse Fat32/exFat drives
 - Navigate with D-Pad
 - View file information (name, size, type)
 - Create new files and folders
 - Copy/Paste/Move/Rename/Delete files/folders
+- Select multiple files for file operations
 - Side panel menu for quick access to operations
 
 ### Text Editor

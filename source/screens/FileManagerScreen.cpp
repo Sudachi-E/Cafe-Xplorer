@@ -765,7 +765,7 @@ void FileManagerScreen::DrawContextMenu() {
     
     if (mSelectionMode) {
         Gfx::Print(menuX + menuWidth / 2, menuY + 15, 32,
-                   Gfx::COLOR_ALT_TEXT, "Selection Mode", Gfx::ALIGN_CENTER);
+                   Gfx::COLOR_ALT_TEXT, "Selection", Gfx::ALIGN_CENTER);
         
         int optionY = menuY + 50;
         int optionSpacing = 60;
