@@ -123,17 +123,19 @@ bool disk_probe (
     int32_t handle;
     FSError res = FSAEx_RawOpenEx(client, fatDevPaths[pdrv], &handle);
     if (res < 0) return false;
-    BYTE sector[512];
+    BYTE* sector = (BYTE*)aligned_alloc(0x40, 512);
+    if (!sector) {
+        FSAEx_RawCloseEx(client, handle);
+        return false;
+    }
 
     // USB drives have the FAT32 boot sector at LBA 2048, SD at LBA 0
     LBA_t bootSector = (pdrv >= 1) ? 2048 : 0;
     res = FSAEx_RawReadEx(client, sector, 512, 1, bootSector, handle);
     FSAEx_RawCloseEx(client, handle);
-    if (res != FS_ERROR_OK) return false;
-    
-    // Check for the 0x55 0xAA boot sector signature
-    if (sector[0x1FE] != 0x55 || sector[0x1FF] != 0xAA) return false;
-    return true;
+    bool valid = (res == FS_ERROR_OK && sector[0x1FE] == 0x55 && sector[0x1FF] == 0xAA);
+    free(sector);
+    return valid;
 }
 
 DSTATUS disk_initialize (

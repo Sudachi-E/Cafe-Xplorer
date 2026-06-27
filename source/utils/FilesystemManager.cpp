@@ -10,6 +10,7 @@ bool FilesystemManager::sMochaInitialized = false;
 int FilesystemManager::sFatUsbDriveIndex = -1;
 bool FilesystemManager::sWfsMounted[2] = {false, false};
 uint64_t FilesystemManager::sLastPollTick = 0;
+uint64_t FilesystemManager::sLastWfsProbeTick[2] = {0, 0};
 
 void FilesystemManager::Initialize() {
     if (!sMochaInitialized) {
@@ -184,15 +185,15 @@ bool FilesystemManager::PollDrives() {
         changed = true;
     }
 
-    // Detect new FAT32 drive
+    // Detect new FAT32 drive (skip slots where WFS is mounted)
     if (sFatUsbDriveIndex < 0) {
-        if (FatUsbManager::ProbeDrive(1)) {
+        if (!sWfsMounted[0] && FatUsbManager::ProbeDrive(1)) {
             WHBLogPrintf("[hotplug] FAT32 BPB detected on slot 1, mounting...");
             if (FatUsbManager::MountUSBDrive(1)) {
                 sFatUsbDriveIndex = 1;
                 changed = true;
             }
-        } else if (FatUsbManager::ProbeDrive(2)) {
+        } else if (!sWfsMounted[1] && FatUsbManager::ProbeDrive(2)) {
             WHBLogPrintf("[hotplug] FAT32 BPB detected on slot 2, mounting...");
             if (FatUsbManager::MountUSBDrive(2)) {
                 sFatUsbDriveIndex = 2;
@@ -214,6 +215,7 @@ bool FilesystemManager::PollDrives() {
             Mocha_UnmountFS(wfsNames[i]);
             PathConverter::RemoveRootDirectory(wfsNames[i]);
             sWfsMounted[i] = false;
+            sLastWfsProbeTick[i] = 0;
             changed = true;
         }
     }
@@ -223,7 +225,9 @@ bool FilesystemManager::PollDrives() {
         if (sWfsMounted[i]) continue;
         int usbSlot = i + 1;
         if (FatUsbManager::IsMounted(usbSlot)) continue;
+        if (sLastWfsProbeTick[i] != 0 && now - sLastWfsProbeTick[i] < 60000) continue;
 
+        sLastWfsProbeTick[i] = now;
         MochaUtilsStatus mres = Mocha_MountFS(wfsNames[i], nullptr, wfsPaths[i]);
         if (mres == MOCHA_RESULT_SUCCESS || mres == MOCHA_RESULT_ALREADY_EXISTS) {
             std::string testPath = std::string(wfsNames[i]) + ":/";
