@@ -17,6 +17,8 @@ public:
     
     static void AddRootDirectory(const std::string& dirName);
     
+    static void RemoveRootDirectory(const std::string& dirName);
+    
     static void AddRedirect(const std::string& displayName, const std::string& devoptabPath);
     
     static void ClearRootDirectory();

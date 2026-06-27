@@ -103,27 +103,66 @@ DSTATUS disk_status (
     return 0;
 }
 
+bool disk_isalive (
+    BYTE pdrv
+)
+{
+    if (pdrv < 0 || pdrv >= FF_VOLUMES) return false;
+    if (!fatMounted[pdrv]) return false;
+    BYTE tmp[512];
+    return wiiu_readSectors(pdrv, 0, 1, tmp) == FS_ERROR_OK;
+}
+
+bool disk_probe (
+    BYTE pdrv
+)
+{
+    if (pdrv < 0 || pdrv >= FF_VOLUMES) return false;
+    FSAClientHandle client = getOrCreateClient();
+    if (client < 0) return false;
+    int32_t handle;
+    FSError res = FSAEx_RawOpenEx(client, fatDevPaths[pdrv], &handle);
+    if (res < 0) return false;
+    BYTE sector[512];
+
+    // USB drives have the FAT32 boot sector at LBA 2048, SD at LBA 0
+    LBA_t bootSector = (pdrv >= 1) ? 2048 : 0;
+    res = FSAEx_RawReadEx(client, sector, 512, 1, bootSector, handle);
+    FSAEx_RawCloseEx(client, handle);
+    if (res != FS_ERROR_OK) return false;
+    
+    // Check for the 0x55 0xAA boot sector signature
+    if (sector[0x1FE] != 0x55 || sector[0x1FF] != 0xAA) return false;
+    return true;
+}
+
 DSTATUS disk_initialize (
 	BYTE pdrv
 )
 {
     if (pdrv < 0 || pdrv >= FF_VOLUMES) return STA_NOINIT;
-    if (fatMounted[pdrv]) return 0;  /* Already initialized */
-    // todo: Support drives with non-512 sector sizes
+    if (fatMounted[pdrv]) return 0;
+
+    ffcache_shutdown(pdrv);
     if (ffcache_initialize(pdrv, fatSectorSizes[pdrv], fatCacheSizes[pdrv]) != RES_OK) {
         OSReport("[diskio] ffcache_initialize failed for drive %d\n", pdrv);
         return STA_NOINIT;
     }
-    return wiiu_mountDrive(pdrv);
+    DSTATUS ds = wiiu_mountDrive(pdrv);
+    if (ds != 0) {
+        ffcache_shutdown(pdrv);
+    }
+    return ds;
 }
 
 DSTATUS disk_shutdown (
-        BYTE pdrv
+	BYTE pdrv
 )
 {
     if (pdrv < 0 || pdrv >= FF_VOLUMES) return STA_NOINIT;
     ffcache_shutdown(pdrv);
     if (!fatMounted[pdrv]) return STA_NOINIT;
+    fatMounted[pdrv] = false;
     return wiiu_unmountDrive(pdrv);
 }
 
@@ -320,6 +359,16 @@ DSTATUS disk_status (
     return 0;
 }
 
+bool disk_isalive (
+        BYTE pdrv
+)
+{
+    if (pdrv < 0 || pdrv >= FF_VOLUMES) return false;
+    if (!fatMounted[pdrv]) return false;
+    BYTE tmp[512];
+    return wiiu_readSectors(pdrv, 0, 1, tmp) == FS_ERROR_OK;
+}
+
 DSTATUS disk_initialize (
         BYTE pdrv
 )
@@ -328,9 +377,16 @@ DSTATUS disk_initialize (
         return STA_NOINIT;
     if (fatMounted[pdrv])
         return STA_NOINIT;
+    
     // todo: Get sector size instead of hard-coding it
-    ffcache_initialize(pdrv, fatSectorSizes[pdrv], fatCacheSizes[pdrv]);
-    return wiiu_mountDrive(pdrv);
+    ffcache_shutdown(pdrv);
+    if (ffcache_initialize(pdrv, fatSectorSizes[pdrv], fatCacheSizes[pdrv]) != RES_OK)
+        return STA_NOINIT;
+    DSTATUS ds = wiiu_mountDrive(pdrv);
+    if (ds != 0) {
+        ffcache_shutdown(pdrv);
+    }
+    return ds;
 }
 
 DSTATUS disk_shutdown (
@@ -342,6 +398,7 @@ DSTATUS disk_shutdown (
     ffcache_shutdown(pdrv);
     if (!fatMounted[pdrv])
         return STA_NOINIT;
+    fatMounted[pdrv] = false;
     return wiiu_unmountDrive(pdrv);
 }
 

@@ -4,9 +4,12 @@
 #include <mocha/mocha.h>
 #include <whb/log.h>
 #include <dirent.h>
+#include <coreinit/time.h>
 
 bool FilesystemManager::sMochaInitialized = false;
 int FilesystemManager::sFatUsbDriveIndex = -1;
+bool FilesystemManager::sWfsMounted[2] = {false, false};
+uint64_t FilesystemManager::sLastPollTick = 0;
 
 void FilesystemManager::Initialize() {
     if (!sMochaInitialized) {
@@ -105,6 +108,7 @@ void FilesystemManager::MountAllFilesystems() {
                     closedir(testDir);
                     WHBLogPrintf("WFS USB detected at %s as %s", wfsPaths[i], name);
                     PathConverter::AddRootDirectory(name);
+                    sWfsMounted[i] = true;
                 } else {
                     WHBLogPrintf("No WFS USB at %s — cleaning up", wfsPaths[i]);
                     if (!sDevoptabsInitialized)
@@ -161,6 +165,88 @@ bool FilesystemManager::IsFatUsbMounted() {
     return sFatUsbDriveIndex >= 0 && FatUsbManager::IsMounted(sFatUsbDriveIndex);
 }
 
+bool FilesystemManager::PollDrives() {
+    uint64_t now = OSTicksToMilliseconds(OSGetSystemTime());
+    bool anyDriveFound = sFatUsbDriveIndex >= 0 || sWfsMounted[0] || sWfsMounted[1];
+    uint64_t interval = anyDriveFound ? 3000 : 60000;
+    if (now - sLastPollTick < interval)
+        return false;
+    sLastPollTick = now;
+
+    bool changed = false;
+
+    // Checks mounted FAT32 drive for removal
+    if (sFatUsbDriveIndex >= 0 && !FatUsbManager::ProbeDrive(sFatUsbDriveIndex)) {
+        WHBLogPrintf("[hotplug] FAT32 drive %d removed", sFatUsbDriveIndex);
+        FatUsbManager::UnmountUSBDrive(sFatUsbDriveIndex);
+        PathConverter::RemoveRootDirectory("fat_usb");
+        sFatUsbDriveIndex = -1;
+        changed = true;
+    }
+
+    // Detect new FAT32 drive
+    if (sFatUsbDriveIndex < 0) {
+        if (FatUsbManager::ProbeDrive(1)) {
+            WHBLogPrintf("[hotplug] FAT32 BPB detected on slot 1, mounting...");
+            if (FatUsbManager::MountUSBDrive(1)) {
+                sFatUsbDriveIndex = 1;
+                changed = true;
+            }
+        } else if (FatUsbManager::ProbeDrive(2)) {
+            WHBLogPrintf("[hotplug] FAT32 BPB detected on slot 2, mounting...");
+            if (FatUsbManager::MountUSBDrive(2)) {
+                sFatUsbDriveIndex = 2;
+                changed = true;
+            }
+        }
+    }
+
+    // Check mounted WFS drives for removal
+    const char* wfsNames[] = {"storage_usb01", "storage_usb02"};
+    for (int i = 0; i < 2; i++) {
+        if (!sWfsMounted[i]) continue;
+        std::string testPath = std::string(wfsNames[i]) + ":/";
+        DIR* d = opendir(testPath.c_str());
+        if (d) {
+            closedir(d);
+        } else {
+            WHBLogPrintf("[hotplug] WFS %s removed", wfsNames[i]);
+            Mocha_UnmountFS(wfsNames[i]);
+            PathConverter::RemoveRootDirectory(wfsNames[i]);
+            sWfsMounted[i] = false;
+            changed = true;
+        }
+    }
+
+    const char* wfsPaths[] = {"/vol/storage_usb01", "/vol/storage_usb02"};
+    for (int i = 0; i < 2; i++) {
+        if (sWfsMounted[i]) continue;
+        int usbSlot = i + 1;
+        if (FatUsbManager::IsMounted(usbSlot)) continue;
+
+        MochaUtilsStatus mres = Mocha_MountFS(wfsNames[i], nullptr, wfsPaths[i]);
+        if (mres == MOCHA_RESULT_SUCCESS || mres == MOCHA_RESULT_ALREADY_EXISTS) {
+            std::string testPath = std::string(wfsNames[i]) + ":/";
+            DIR* d = opendir(testPath.c_str());
+            if (d) {
+                closedir(d);
+                WHBLogPrintf("[hotplug] New WFS drive detected at %s", wfsPaths[i]);
+                PathConverter::AddRootDirectory(wfsNames[i]);
+                sWfsMounted[i] = true;
+                changed = true;
+            } else {
+                Mocha_UnmountFS(wfsNames[i]);
+            }
+        }
+    }
+
+    if (changed) {
+        WHBLogPrintf("[hotplug] Drive state changed");
+    }
+
+    return changed;
+}
+
 void FilesystemManager::UnmountAllFilesystems() {
     if (!sMochaInitialized) {
         return;
@@ -182,6 +268,9 @@ void FilesystemManager::UnmountAllFilesystems() {
     Mocha_UnmountFS("slccmpt01"); WHBLogPrintf("[unmount] slccmpt01 done");
     Mocha_UnmountFS("storage_slc"); WHBLogPrintf("[unmount] storage_slc done");
     Mocha_UnmountFS("storage_mlc"); WHBLogPrintf("[unmount] storage_mlc done");
+    
+    for (int i = 0; i < 2; i++)
+        sWfsMounted[i] = false;
     
     WHBLogPrintf("[unmount] All filesystems unmounted");
 }

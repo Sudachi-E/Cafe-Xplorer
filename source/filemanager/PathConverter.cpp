@@ -33,6 +33,19 @@ void PathConverter::AddRootDirectory(const std::string& dirName) {
     }
 }
 
+void PathConverter::RemoveRootDirectory(const std::string& dirName) {
+    if (!sInitialized) Initialize();
+    
+    auto &roots = sVirtualDirs["/"];
+    auto it = std::find(roots.begin(), roots.end(), dirName);
+    if (it != roots.end()) {
+        roots.erase(it);
+    }
+    
+    std::string virtualPath = "/" + dirName;
+    sVirtualDirs.erase(virtualPath);
+}
+
 void PathConverter::AddRedirect(const std::string& displayName, const std::string& devoptabPath) {
     if (!sInitialized) Initialize();
     sRedirects[displayName] = devoptabPath;

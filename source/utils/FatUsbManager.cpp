@@ -121,6 +121,15 @@ bool FatUsbManager::IsMounted(int driveIndex) {
     return sDriveMounted[driveIndex];
 }
 
+bool FatUsbManager::IsDriveAlive(int driveIndex) {
+    if (!sDriveMounted[driveIndex]) return false;
+    return disk_isalive((BYTE)driveIndex);
+}
+
+bool FatUsbManager::ProbeDrive(int driveIndex) {
+    return disk_probe((BYTE)driveIndex);
+}
+
 void FatUsbManager::Shutdown() {
     for (int i = 0; i < 3; i++) {
         if (sDriveMounted[i]) {

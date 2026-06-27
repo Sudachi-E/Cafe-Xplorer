@@ -678,6 +678,10 @@ bool FileManagerScreen::Update(Input &input) {
         }
     }
     
+    if (FilesystemManager::PollDrives()) {
+        mFileManager.ScanDirectory(mFileManager.GetCurrentPath());
+    }
+    
     return true;
 }
 

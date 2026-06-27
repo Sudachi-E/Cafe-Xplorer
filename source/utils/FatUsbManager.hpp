@@ -6,6 +6,8 @@ public:
     static bool MountSdCard();
     static void UnmountUSBDrive(int driveIndex = 1);
     static bool IsMounted(int driveIndex = 1);
+    static bool IsDriveAlive(int driveIndex);
+    static bool ProbeDrive(int driveIndex);
     static void Shutdown();
 private:
     static bool MountDrive(int driveIndex, const char* devName);

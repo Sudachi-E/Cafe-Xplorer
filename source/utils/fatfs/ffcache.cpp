@@ -199,7 +199,7 @@ DRESULT ffcache_initialize(BYTE pdrv, DWORD sectorByteSize, DWORD sectorCount) {
     if (fatCaches[pdrv].initialized)
         return RES_ERROR;
 
-    OSReport("[ffcache] Initializing cache...\n");
+    OSReport("[ffcache] Initializing cache (pdrv=%d)...\n", pdrv);
 
     fatCaches[pdrv].sectorSize = sectorByteSize;
     fatCaches[pdrv].sectorCount = sectorCount;
@@ -239,10 +239,9 @@ DRESULT ffcache_flushSectors(BYTE pdrv) {
 
 void ffcache_shutdown(BYTE pdrv) {
     auto cache = &fatCaches[pdrv];
-    if (!fatCaches[pdrv].initialized)
+    if (!cache->initialized)
         return;
 
-    // Delete all sectors
     ffcache_flushSectors(pdrv);
     while (!cache->freeSectors.empty()) {
         sectorCache* sector = cache->freeSectors.back();
@@ -251,10 +250,19 @@ void ffcache_shutdown(BYTE pdrv) {
         delete sector;
     }
 
-    free(cache->sectorsBuffer);
+    if (cache->sectorsBuffer) {
+        free(cache->sectorsBuffer);
+        cache->sectorsBuffer = nullptr;
+    }
+    cache->freeSectors.clear();
+    cache->lruSectors.clear();
+    cache->cachedSectors.clear();
+    cache->activeCacheWindow = &emptySector;
+    cache->sectorSize = 0;
+    cache->sectorCount = 0;
     dirCache_clear(pdrv);
-    OSReport("[ffcache] Clearing %d cachedSectors, %d freeSectors, %d lruSectors...\n", cache->cachedSectors.size(), cache->freeSectors.size(), cache->lruSectors.size());
-    fatCaches[pdrv].initialized = false;
+    cache->initialized = false;
+    OSReport("[ffcache] Clearing %d cachedSectors, %d freeSectors, %d lruSectors (pdrv=%d)...\n", cache->cachedSectors.size(), cache->freeSectors.size(), cache->lruSectors.size(), cache->pdrv);
 }
 
 DRESULT ffcache_readSectors(BYTE pdrv, LBA_t sectorOffset, UINT sectorCount, BYTE *bufferOut) {
