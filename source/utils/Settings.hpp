@@ -9,9 +9,12 @@ public:
     
     static bool GetFullFilesystemAccess();
     static void SetFullFilesystemAccess(bool enabled);
+    static bool GetFtpServerEnabled();
+    static void SetFtpServerEnabled(bool enabled);
     
 private:
     static bool sFullFilesystemAccess;
+    static bool sFtpServerEnabled;
     static bool sInitialized;
     static std::string GetSettingsPath();
 };

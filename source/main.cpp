@@ -7,6 +7,7 @@
 #include "utils/logger.h"
 #include "utils/Settings.hpp"
 #include "utils/FilesystemManager.hpp"
+#include "utils/FtpServer.hpp"
 #include "filemanager/PathConverter.hpp"
 #include <coreinit/title.h>
 #include <memory>
@@ -115,6 +116,9 @@ int main(int argc, char const *argv[]) {
     KPADShutdown();
     VPADShutdown();
     WHBLogPrintf("KPAD/VPAD shutdown complete");
+    
+    FtpServer::Stop();
+    WHBLogPrintf("FTP server stopped");
     
     if (FilesystemManager::IsMochaInitialized()) {
         FilesystemManager::UnmountAllFilesystems();

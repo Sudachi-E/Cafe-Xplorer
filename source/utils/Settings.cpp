@@ -5,6 +5,7 @@
 #include <errno.h>
 
 bool Settings::sFullFilesystemAccess = false;
+bool Settings::sFtpServerEnabled = false;
 bool Settings::sInitialized = false;
 
 std::string Settings::GetSettingsPath() {
@@ -34,6 +35,10 @@ void Settings::Load() {
             std::string value = line.substr(23);
             sFullFilesystemAccess = (value == "1" || value == "true");
             WHBLogPrintf("Loaded setting: full_filesystem_access = %d", sFullFilesystemAccess);
+        } else if (line.find("ftp_server_enabled=") == 0) {
+            std::string value = line.substr(19);
+            sFtpServerEnabled = (value == "1" || value == "true");
+            WHBLogPrintf("Loaded setting: ftp_server_enabled = %d", sFtpServerEnabled);
         }
     }
     
@@ -50,10 +55,12 @@ void Settings::Save() {
     }
     
     file << "full_filesystem_access=" << (sFullFilesystemAccess ? "1" : "0") << std::endl;
+    file << "ftp_server_enabled=" << (sFtpServerEnabled ? "1" : "0") << std::endl;
     file.close();
-    
+
     WHBLogPrintf("Settings saved successfully to: %s", settingsPath.c_str());
     WHBLogPrintf("  full_filesystem_access = %d", sFullFilesystemAccess);
+    WHBLogPrintf("  ftp_server_enabled = %d", sFtpServerEnabled);
 }
 
 bool Settings::GetFullFilesystemAccess() {
@@ -63,4 +70,13 @@ bool Settings::GetFullFilesystemAccess() {
 
 void Settings::SetFullFilesystemAccess(bool enabled) {
     sFullFilesystemAccess = enabled;
+}
+
+bool Settings::GetFtpServerEnabled() {
+    if (!sInitialized) Initialize();
+    return sFtpServerEnabled;
+}
+
+void Settings::SetFtpServerEnabled(bool enabled) {
+    sFtpServerEnabled = enabled;
 }

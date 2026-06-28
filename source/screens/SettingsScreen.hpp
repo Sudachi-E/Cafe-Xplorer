@@ -19,8 +19,13 @@ private:
     bool mShouldClose;
     bool mSettingsChanged;
     bool mFullFilesystemAccess;
+    bool mFtpServerEnabled;
+    bool mShowFtpResult;
+    int mFtpModalOption;
+    std::string mFtpResultIP;
     
     void ToggleFullFilesystemAccess();
+    void ToggleFtpServer();
     void SaveSettings();
     void LoadSettings();
 };

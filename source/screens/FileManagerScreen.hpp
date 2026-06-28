@@ -67,6 +67,9 @@ private:
     std::vector<bool> mMultiClipboardIsDirectory;
     bool mMultiClipboardIsMove;
 
+    bool mShowFtpModal;
+    std::string mFtpIp;
+
     static std::string FormatSize(size_t bytes);
     static bool IsTextFile(const std::string& filename);
     static bool IsImageFile(const std::string& filename);
@@ -80,6 +83,7 @@ private:
     void DrawLoadingModal();
     void DrawLaunchConfirmModal();
     void DrawCopyProgressModal();
+    void DrawFtpModal();
     void CreateNewFile(const std::string& filename);
     void CreateNewFolder(const std::string& foldername);
     bool ScanDirectoryWithModal(const std::string& path);

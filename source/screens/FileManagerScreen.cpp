@@ -769,7 +769,7 @@ void FileManagerScreen::DrawContextMenu() {
     
     if (mSelectionMode) {
         Gfx::Print(menuX + menuWidth / 2, menuY + 15, 32,
-                   Gfx::COLOR_ALT_TEXT, "Selection", Gfx::ALIGN_CENTER);
+                   Gfx::COLOR_WHITE, "Selection", Gfx::ALIGN_CENTER);
         
         int optionY = menuY + 50;
         int optionSpacing = 60;
@@ -787,7 +787,7 @@ void FileManagerScreen::DrawContextMenu() {
         }
     } else {
         Gfx::Print(menuX + menuWidth / 2, menuY + 15, 32,
-                   Gfx::COLOR_ALT_TEXT, "Menu", Gfx::ALIGN_CENTER);
+                   Gfx::COLOR_WHITE, "Menu", Gfx::ALIGN_CENTER);
         
         int optionY = menuY + 50;
         int optionSpacing = 60;
@@ -866,7 +866,7 @@ void FileManagerScreen::DrawContextMenu() {
     }
     
     Gfx::Print(menuX + menuWidth / 2, menuY + menuHeight - 30, 28,
-               Gfx::COLOR_ALT_TEXT, "A: Select  B: Cancel", Gfx::ALIGN_CENTER);
+               Gfx::COLOR_WHITE, "A: Select  B: Cancel", Gfx::ALIGN_CENTER);
 }
 
 void FileManagerScreen::CreateNewFile(const std::string& filename) {
@@ -941,7 +941,7 @@ void FileManagerScreen::DrawDeleteConfirmModal() {
     
     if (mPendingDeletePaths.size() == 1) {
         Gfx::Print(modalX + modalWidth / 2, modalY + 100, 36,
-                   Gfx::COLOR_ALT_TEXT, mPendingDeleteFileNames[0], Gfx::ALIGN_CENTER);
+                   Gfx::COLOR_WHITE, mPendingDeleteFileNames[0], Gfx::ALIGN_CENTER);
     }
     
     Gfx::Print(modalX + modalWidth / 2, modalY + 140, 30,
