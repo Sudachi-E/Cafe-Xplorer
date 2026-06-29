@@ -7,9 +7,9 @@ VideoDecoder::VideoDecoder()
       mFrameRGB(nullptr), mAudioFrame(nullptr), mPacket(nullptr), 
       mVideoStreamIndex(-1), mAudioStreamIndex(-1), mWidth(0), mHeight(0),
       mDuration(0.0), mCurrentTime(0.0), mAudioTime(0.0), mBuffer(nullptr), 
-      mAvioBuffer(nullptr), mFile(nullptr), mAudioDevice(0), mAudioBuffer(nullptr), 
-      mAudioBufferSize(0), mAudioBufferIndex(0), mPacketMutex(nullptr), 
-      mAudioPacket(nullptr), mPacketReaderThread(nullptr) {
+      mAvioBuffer(nullptr), mAudioBuffer(nullptr), mAudioBufferSize(0), 
+      mAudioBufferIndex(0), mAudioDevice(0), mPacketMutex(nullptr), 
+      mAudioPacket(nullptr), mPacketReaderThread(nullptr), mFile(nullptr) {
     mPacketMutex = SDL_CreateMutex();
     SDL_AtomicSet(&mReaderThreadRunning, 0);
 }
@@ -468,6 +468,15 @@ bool VideoDecoder::Open(const std::string& path) {
                             AV_PIX_FMT_RGBA, mWidth, mHeight, 1);
         
         WHBLogPrintf("VideoDecoder::Open: Initializing SWS context");
+        
+        if (mVideoCodecCtx->pix_fmt == AV_PIX_FMT_NONE) {
+            WHBLogPrintf("VideoDecoder::Open: FAILED - Invalid pixel format AV_PIX_FMT_NONE");
+            mWidth = -10;
+            mHeight = 10;
+            Close();
+            return false;
+        }
+        
         int swsFlags = SWS_FAST_BILINEAR;
         
         if (mVideoCodecCtx->codec_id == AV_CODEC_ID_RAWVIDEO) {
@@ -598,19 +607,20 @@ void VideoDecoder::Close() {
         avcodec_free_context(&mAudioCodecCtx);
     }
     
+    if (mFormatCtx) {
+        avformat_close_input(&mFormatCtx);
+    }
+
     if (mAvioCtx) {
         av_freep(&mAvioCtx->buffer);
         avio_context_free(&mAvioCtx);
     }
-    
-    if (mFormatCtx) {
-        avformat_close_input(&mFormatCtx);
-    }
-    
+
     if (mFile) {
         fclose(mFile);
         mFile = nullptr;
     }
+    mAvioBuffer = nullptr;
     
     mVideoStreamIndex = -1;
     mAudioStreamIndex = -1;
@@ -636,7 +646,6 @@ bool VideoDecoder::ReadFrame(SDL_Texture* texture) {
     
     Uint32 lockStartTime = SDL_GetTicks();
     SDL_LockMutex(mPacketMutex);
-    Uint32 lockEndTime = SDL_GetTicks();
     
     if (mVideoPacketQueue.empty()) {
         SDL_UnlockMutex(mPacketMutex);

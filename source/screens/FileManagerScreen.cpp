@@ -159,7 +159,7 @@ void FileManagerScreen::Draw() {
             if (!entries[i].isDirectory) {
                 std::string sizeStr = FormatSize(entries[i].size);
                 Gfx::Print(Gfx::SCREEN_WIDTH - 60, y + 20, 32, 
-                           isSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_ALT_TEXT, 
+                           isSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_WHITE, 
                            sizeStr, Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
             }
             
@@ -440,6 +440,8 @@ bool FileManagerScreen::Update(Input &input) {
                         mClipboardIsMove = true;
                     }
                 } else if (mContextMenuSelection == 5) {
+                    bool isMultiPaste = !mMultiClipboardPaths.empty();
+                    bool isMove = isMultiPaste ? mMultiClipboardIsMove : mClipboardIsMove;
                     auto doPaste = [&](const std::string& srcPath, bool isDir) {
                         size_t lastSlash = srcPath.find_last_of('/');
                         mCopyProgressName = (lastSlash != std::string::npos)
@@ -450,7 +452,7 @@ bool FileManagerScreen::Update(Input &input) {
                         Draw();
                         Gfx::Render();
                         bool success = false;
-                        if (mClipboardIsMove) {
+                        if (isMove) {
                             mFileManager.SetCopyProgressCallback([this](uint64_t copied, uint64_t total) {
                                 mCopyProgressBytes = copied; mCopyProgressTotal = total;
                                 Draw(); Gfx::Render();
@@ -468,27 +470,21 @@ bool FileManagerScreen::Update(Input &input) {
                         mShowCopyProgressModal = false;
                         return success;
                     };
-                    if (!mMultiClipboardPaths.empty()) {
-                        // Multi-clipboard paste
+                    if (isMultiPaste) {
                         for (size_t i = 0; i < mMultiClipboardPaths.size(); i++) {
                             doPaste(mMultiClipboardPaths[i], mMultiClipboardIsDirectory[i]);
                         }
-                        if (mMultiClipboardIsMove) {
-                            mMultiClipboardPaths.clear();
-                            mMultiClipboardIsDirectory.clear();
-                            mMultiClipboardIsMove = false;
-                        }
-                        mFileManager.ScanDirectory(mFileManager.GetCurrentPath());
                     } else if (!mClipboardPath.empty()) {
-                        // Single clipboard paste (backward compat)
                         doPaste(mClipboardPath, mClipboardIsDirectory);
-                        if (mClipboardIsMove) {
-                            mClipboardPath.clear();
-                            mClipboardIsDirectory = false;
-                            mClipboardIsMove = false;
-                        }
-                        mFileManager.ScanDirectory(mFileManager.GetCurrentPath());
                     }
+                    // Clear both clipboards after any paste
+                    mMultiClipboardPaths.clear();
+                    mMultiClipboardIsDirectory.clear();
+                    mMultiClipboardIsMove = false;
+                    mClipboardPath.clear();
+                    mClipboardIsDirectory = false;
+                    mClipboardIsMove = false;
+                    mFileManager.ScanDirectory(mFileManager.GetCurrentPath());
                 } else if (mContextMenuSelection == 6) {
                     const auto& entries = mFileManager.GetEntries();
                     if (!entries.empty() && mSelectedIndex < entries.size()) {
@@ -705,8 +701,8 @@ bool FileManagerScreen::IsTextFile(const std::string& filename) {
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
     
     // Check for text file extensions
-    return lower.ends_with(".txt") || 
-           lower.ends_with(".json") || 
+    return lower.ends_with(".txt") ||
+           lower.ends_with(".json") ||
            lower.ends_with(".log") ||
            lower.ends_with(".ini") ||
            lower.ends_with(".cfg") ||

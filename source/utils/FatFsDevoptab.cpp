@@ -129,7 +129,8 @@ static int fatfs_dirnext_r(struct _reent *r, DIR_ITER *dirState, char *filename,
     FRESULT fr = f_readdir((DIR*)dirState->dirStruct, &fno);
     if (fr != FR_OK) { r->_errno = fatfs_to_errno(fr); return -1; }
     if (fno.fname[0] == 0) { r->_errno = 0; return -1; }
-    strncpy(filename, fno.fname, NAME_MAX);
+	strncpy(filename, fno.fname, NAME_MAX);
+	filename[NAME_MAX] = '\0';
     if (filestat) {
         memset(filestat, 0, sizeof(struct stat));
         filestat->st_size = fno.fsize;
