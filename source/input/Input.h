@@ -36,6 +36,11 @@ public:
         float rightStickY;
     } PadData;
 
+    enum eControllerType {
+        CONTROLLER_TYPE_GAMEPAD,
+        CONTROLLER_TYPE_WIIMOTE,
+    };
+
     PadData data{};
     PadData lastData{};
 };

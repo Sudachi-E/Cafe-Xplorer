@@ -1,4 +1,5 @@
 #include "Gfx.hpp"
+#include "Screen.hpp"
 #include "input/CombinedInput.h"
 #include "input/VPADInput.h"
 #include "input/WPADInput.h"
@@ -85,6 +86,27 @@ int main(int argc, char const *argv[]) {
             }
             
             baseInput.process();
+
+            {
+                Input::eControllerType activeType = Screen::GetActiveControllerType();
+
+                bool wpadActive = false;
+                for (auto &wpadInput : wpadInputs) {
+                    if (wpadInput.isConnected() &&
+                        (wpadInput.data.buttons_h != 0 || wpadInput.data.buttons_d != 0)) {
+                        activeType = wpadInput.getControllerType();
+                        wpadActive = true;
+                        break;
+                    }
+                }
+
+                if (!wpadActive &&
+                    (vpadInput.data.buttons_h != 0 || vpadInput.data.buttons_d != 0)) {
+                    activeType = Input::CONTROLLER_TYPE_GAMEPAD;
+                }
+
+                Screen::SetActiveControllerType(activeType);
+            }
 
             if (!fileManagerScreen->Update(baseInput)) {
                     SYSLaunchMenu();

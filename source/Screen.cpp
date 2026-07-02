@@ -4,33 +4,39 @@
 #include <vector>
 #include <string>
 
+Input::eControllerType Screen::sActiveControllerType = Input::CONTROLLER_TYPE_GAMEPAD;
+
 struct ButtonGlyph {
     const char* token;
-    const char* glyph;
+    const char* gamepadGlyph;
+    const char* wiimoteGlyph;
 };
 
 static const ButtonGlyph kButtonGlyphs[] = {
-    { "A",    "\xee\x80\x80" },
-    { "B",    "\xee\x80\x81" },
-    { "X",    "\xee\x80\x82" },
-    { "Y",    "\xee\x80\x83" },
-    { "L",    "\xee\x80\x84" },
-    { "R",    "\xee\x80\x85" },
-    { "ZL",   "\xee\x82\x85" },
-    { "ZR",   "\xee\x82\x86" },
-    { "HOME", "\xee\x81\x84" },
-    { "+",    "\xee\x81\x85" },
-    { "-",    "\xee\x81\x86" },
-    { "PageL/PageR", "\xee\x82\x83\xee\x82\x84" },
-    { "Zoom",  "\xee\x82\x82" },
-    { "Stick", "\xee\x82\x81" },
-    { "L/R",  "\xee\x82\x83\xee\x82\x84" },
-    { "ZL/ZR","\xee\x82\x85\xee\x82\x86" },
+    { "A",    "\xee\x80\x80", "\xee\x80\x80" },
+    { "B",    "\xee\x80\x81", "\xee\x80\x81" },
+    { "X",    "\xee\x80\x82", "\xee\x81\x85" },
+    { "Y",    "\xee\x80\x83", "\xee\x81\x86" },
+    { "L",    "\xee\x80\x84", "\xee\x80\x84" },
+    { "R",    "\xee\x80\x85", "\xee\x80\x85" },
+    { "ZL",   "\xee\x82\x85", "\xee\x82\x85" },
+    { "ZR",   "\xee\x82\x86", "\xee\x82\x86" },
+    { "HOME", "\xee\x81\x84", "\xee\x81\x84" },
+    { "+",    "\xee\x81\x85", "\xee\x81\x85" },
+    { "-",    "\xee\x81\x86", "\xee\x81\x86" },
+    { "PageL/PageR", "\xee\x82\x83\xee\x82\x84", "\xee\x82\x83\xee\x82\x84" },
+    { "Zoom",  "\xee\x82\x82", "\xee\x82\x82" },
+    { "Stick", "\xee\x82\x81", "\xee\x82\x81" },
+    { "L/R",  "\xee\x82\x83\xee\x82\x84", "\xee\x82\x83\xee\x82\x84" },
+    { "ZL/ZR","\xee\x82\x85\xee\x82\x86", "\xee\x82\x85\xee\x82\x86" },
 };
 
 static const char* FindGlyph(const std::string& token) {
     for (const auto& bg : kButtonGlyphs) {
-        if (token == bg.token) return bg.glyph;
+        if (token == bg.token) {
+            return Screen::GetActiveControllerType() == Input::CONTROLLER_TYPE_WIIMOTE
+                       ? bg.wiimoteGlyph : bg.gamepadGlyph;
+        }
     }
     return nullptr;
 }

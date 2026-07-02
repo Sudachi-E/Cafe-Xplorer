@@ -12,8 +12,12 @@ public:
         KPADError error;
 
         if (KPADReadEx((KPADChan)mChan, &kpad, 1, &error) != 1 || error != KPAD_ERROR_OK) {
+            mConnected = false;
             return false;
         }
+
+        mConnected = true;
+        mExtensionType = kpad.extensionType;
 
         if (kpad.extensionType == WPAD_EXT_PRO_CONTROLLER) {
             data.buttons_h = MapProButtons(kpad.pro.hold);
@@ -61,8 +65,22 @@ public:
         return true;
     }
 
+    bool isConnected() const { return mConnected; }
+
+    eControllerType getControllerType() const {
+        if (!mConnected) return CONTROLLER_TYPE_GAMEPAD;
+        if (mExtensionType == WPAD_EXT_CORE ||
+            mExtensionType == WPAD_EXT_MPLUS ||
+            mExtensionType == WPAD_EXT_NUNCHUK ||
+            mExtensionType == WPAD_EXT_MPLUS_NUNCHUK)
+            return CONTROLLER_TYPE_WIIMOTE;
+        return CONTROLLER_TYPE_GAMEPAD;
+    }
+
 private:
     WPADChan mChan;
+    bool mConnected = false;
+    uint32_t mExtensionType = 0;
 
     static uint32_t MapWiiButtons(uint32_t p) {
         uint32_t m = 0;
