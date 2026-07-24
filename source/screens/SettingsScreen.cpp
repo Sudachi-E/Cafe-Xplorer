@@ -105,7 +105,7 @@ void SettingsScreen::Draw() {
     }
 
     DrawTopBar("Settings");
-    Gfx::Print(Gfx::SCREEN_WIDTH - 40, 40, 32, Gfx::COLOR_TEXT, "v1.8", Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
+    Gfx::Print(Gfx::SCREEN_WIDTH - 40, 40, 32, Gfx::COLOR_TEXT, "v1.9", Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
     Gfx::Print(Gfx::SCREEN_WIDTH / 2, 40, 48, Gfx::COLOR_TEXT, "Cafe-Xplorer", Gfx::ALIGN_CENTER);
 
     int yPos = 150;
@@ -131,7 +131,7 @@ void SettingsScreen::Draw() {
     if (mSelectedOption == 1) {
         bool running = FtpServer::IsRunning();
         Gfx::Print(200, ftpStatusY + 30, 20, Gfx::COLOR_TEXT,
-            running ? "FTP active — toggle OFF to stop" : "Start FTP server on port 2121",
+            running ? "FTP active — toggle OFF to stop" : "Start FTP server on port 1337",
             Gfx::ALIGN_LEFT);
     }
 

@@ -23,7 +23,7 @@ OSThread FtpServer::sServerThread;
 uint8_t FtpServer::sServerStack[16384];
 volatile bool FtpServer::sRunning = false;
 volatile bool FtpServer::sServerDone = false;
-uint16_t FtpServer::sPort = 2121;
+uint16_t FtpServer::sPort = 1337;
 std::string FtpServer::sLocalIP;
 int FtpServer::sActiveConnections = 0;
 volatile int FtpServer::sActiveClientSock = -1;
@@ -238,6 +238,8 @@ static std::string FtpResolvePath(const std::string& displayPath) {
 void FtpServer::HandleClient(int clientSock, const char* clientIP) {
     WHBLogPrintf("[FTP] Client connected from %s", clientIP);
     ACPTurnOnDrcLed(0, 3);
+    OSTime ledStart = OSGetTime();
+    bool ledOn = true;
 
     int dataListenSock = -1;
     std::string renamePath;
@@ -248,6 +250,11 @@ void FtpServer::HandleClient(int clientSock, const char* clientIP) {
     bool binary = true;
 
     while (sRunning) {
+        if (ledOn && (OSGetTime() - ledStart) >= OSMillisecondsToTicks(15000)) {
+            ACPTurnOffDrcLed();
+            ledOn = false;
+        }
+
         std::string cmdLine = RecvLine(clientSock);
         if (cmdLine.empty()) break;
 
