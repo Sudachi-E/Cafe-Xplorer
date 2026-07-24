@@ -17,4 +17,5 @@ private:
     static bool sFtpServerEnabled;
     static bool sInitialized;
     static std::string GetSettingsPath();
+    static std::string GetSavePath();
 };

@@ -266,6 +266,11 @@ bool FileManagerScreen::Update(Input &input) {
                         closedir(testSd);
                         PathConverter::AddRootDirectory("storage_sd");
                     }
+                    if (FilesystemManager::IsFatUsbMounted()) {
+                        PathConverter::AddRootDirectory("fat_usb");
+                    } else {
+                        FilesystemManager::MountFatUsb();
+                    }
                     mFileManager.ScanDirectory("/");
                 }
                 mSelectedIndex = 0;

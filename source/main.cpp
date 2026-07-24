@@ -28,13 +28,17 @@ int main(int argc, char const *argv[]) {
     Settings::Initialize();
     
     PathConverter::AddRootDirectory("fs");
-    
+
+    // Always initialize Mocha and mount FAT32 USB
+    FilesystemManager::Initialize();
+    FilesystemManager::MountFatUsb();
+
     // mount additional filesystems if full access is enabled
     if (Settings::GetFullFilesystemAccess()) {
         WHBLogPrintf("Full filesystem access enabled, mounting all storage");
         FilesystemManager::MountAllFilesystems();
     } else {
-        WHBLogPrintf("Full filesystem access disabled, SD card only mode");
+        WHBLogPrintf("Full filesystem access disabled, SD card + FAT USB mode");
     }
 
     AXInit();

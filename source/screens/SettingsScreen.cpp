@@ -100,7 +100,7 @@ void SettingsScreen::Draw() {
                    Gfx::COLOR_WHITE, "Stop (B)", Gfx::ALIGN_CENTER);
 
         Gfx::Print(modalX + modalWidth / 2, modalY + modalHeight - 30, 24, Gfx::COLOR_WHITE,
-                   "A: Confirm  B: Cancel", Gfx::ALIGN_CENTER);
+                   "A: Confirm", Gfx::ALIGN_CENTER);
         return;
     }
 
@@ -135,7 +135,7 @@ void SettingsScreen::Draw() {
             Gfx::ALIGN_LEFT);
     }
 
-    DrawBottomBar("A: Toggle  B: Back", nullptr, nullptr);
+    DrawBottomBar("A: Toggle", nullptr, nullptr);
 }
 
 bool SettingsScreen::Update(Input& input) {
@@ -157,10 +157,6 @@ bool SettingsScreen::Update(Input& input) {
                 SaveSettings();
                 mShouldClose = true;
             }
-        }
-        if (input.data.buttons_d & Input::BUTTON_B) {
-            mShowFtpResult = false;
-            mShouldClose = true;
         }
         return true;
     }

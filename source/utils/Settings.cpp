@@ -12,6 +12,10 @@ std::string Settings::GetSettingsPath() {
     return "fs:/vol/external01/wiiu/apps/Cafe-Xplorer/settings.cfg";
 }
 
+std::string Settings::GetSavePath() {
+    return "storage_sd:/wiiu/apps/Cafe-Xplorer/settings.cfg";
+}
+
 void Settings::Initialize() {
     if (sInitialized) return;
     Load();
@@ -46,7 +50,7 @@ void Settings::Load() {
 }
 
 void Settings::Save() {
-    std::string settingsPath = GetSettingsPath();
+    std::string settingsPath = GetSavePath();
     std::ofstream file(settingsPath);
     if (!file.is_open()) {
         WHBLogPrintf("Failed to save settings file to: %s (dir missing?)", settingsPath.c_str());
