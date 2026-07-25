@@ -4,12 +4,12 @@
 #include <whb/log.h>
 
 VideoPlayerScreen::VideoPlayerScreen(const std::string& videoPath)
-    : mVideoPath(PathConverter::ToRealPath(videoPath)), mVideoTexture(nullptr), mShouldClose(false), 
+    : mVideoPath(PathConverter::ToRealPath(videoPath)), mVideoTexture(nullptr), mShouldClose(false),
       mLoadError(false), mIsPlaying(false), mIsPaused(false), mInitialized(false),
-      mShowUI(true), mIsRawVideo(false), mShowRawVideoWarning(false),
-      mVideoWidth(1280), mVideoHeight(720), mPlaybackStartTime(0), 
+      mShowUI(true), mShowTopBar(true), mShowSeekbar(true), mIsRawVideo(false), mShowRawVideoWarning(false),
+      mVideoWidth(1280), mVideoHeight(720), mPlaybackStartTime(0),
       mPlaybackStartPTS(0.0), mFrameDelay(33.0),
-      mWallClockStartTime(0), mWallClockStartPTS(0.0) {
+      mWallClockStartTime(0), mWallClockStartPTS(0.0), mUIHideTime(0) {
     
 }
 
@@ -30,9 +30,17 @@ VideoPlayerScreen::~VideoPlayerScreen() {
 void VideoPlayerScreen::Draw() {
     Gfx::Clear(Gfx::COLOR_BLACK);
     
+    if (mShowTopBar) {
+        size_t slash = mVideoPath.find_last_of('/');
+        std::string filename = (slash != std::string::npos)
+                               ? mVideoPath.substr(slash + 1) : mVideoPath;
+        DrawTopBar(filename.c_str());
+    }
     if (mShowUI) {
-        DrawTopBar(mVideoPath.c_str());
         DrawBottomBar("B: Back", "A: Play/Pause", "L/R: Seek");
+    }
+    if (mShowSeekbar) {
+        DrawPlaybackControls();
     }
     
     if (!mInitialized && !mLoadError) {
@@ -103,10 +111,6 @@ void VideoPlayerScreen::Draw() {
     CalculateDisplayRect(dstRect);
     
     SDL_RenderCopy(Gfx::GetRenderer(), mVideoTexture, nullptr, &dstRect);
-    
-    if (mShowUI) {
-        DrawPlaybackControls();
-    }
 }
 
 bool VideoPlayerScreen::Update(Input &input) {
@@ -119,15 +123,27 @@ bool VideoPlayerScreen::Update(Input &input) {
     }
     
     if (input.data.buttons_d & Input::BUTTON_B) {
-        mShouldClose = true;
-        return false;
+        if (mIsPlaying && !mIsPaused) {
+            mIsPaused = true;
+            mShowTopBar = true;
+            mShowUI = true;
+            mShowSeekbar = true;
+            mDecoder.PauseAudio(true);
+            WHBLogPrintf("[SYNC] PAUSE (B button)");
+        } else {
+            mShouldClose = true;
+            return false;
+        }
     }
-    
+
     if (input.data.buttons_d & Input::BUTTON_A) {
+        mUIHideTime = SDL_GetTicks() + 5000;
         if (!mIsPlaying) {
             mIsPlaying = true;
             mIsPaused = false;
+            mShowTopBar = false;
             mShowUI = false;
+            mShowSeekbar = true;
             double videoPTS = mDecoder.GetCurrentTime();
             double audioPTS = mDecoder.GetAudioTime();
             mDecoder.StartAudio();
@@ -136,14 +152,18 @@ bool VideoPlayerScreen::Update(Input &input) {
         } else {
             mIsPaused = !mIsPaused;
             if (!mIsPaused) {
+                mShowTopBar = false;
                 mShowUI = false;
+                mShowSeekbar = true;
                 double videoPTS = mDecoder.GetCurrentTime();
                 double audioPTS = mDecoder.GetAudioTime();
                 mDecoder.PauseAudio(false);
                 const char* syncMode = mDecoder.HasAudio() ? "A-V" : "WALL-CLOCK";
                 WHBLogPrintf("[SYNC] RESUME (%s) vPTS=%.2f aPTS=%.2f", syncMode, videoPTS, audioPTS);
             } else {
-                mShowUI = true;  // Show UI when pausing
+                mShowTopBar = true;
+                mShowUI = true;
+                mShowSeekbar = true;
                 mDecoder.PauseAudio(true);
                 WHBLogPrintf("[SYNC] PAUSE");
             }
@@ -151,6 +171,7 @@ bool VideoPlayerScreen::Update(Input &input) {
     }
     
     if (input.data.buttons_d & Input::BUTTON_L) {
+        mUIHideTime = SDL_GetTicks() + 5000;
         Uint32 seekStart = SDL_GetTicks();
         double newTime = mDecoder.GetCurrentTime() - 10.0;
         if (newTime < 0) newTime = 0;
@@ -159,8 +180,9 @@ bool VideoPlayerScreen::Update(Input &input) {
         Uint32 seekEnd = SDL_GetTicks();
         WHBLogPrintf("[SYNC] Seek back took %ums", seekEnd - seekStart);
     }
-    
+
     if (input.data.buttons_d & Input::BUTTON_R) {
+        mUIHideTime = SDL_GetTicks() + 5000;
         Uint32 seekStart = SDL_GetTicks();
         double newTime = mDecoder.GetCurrentTime() + 10.0;
         if (newTime > mDecoder.GetDuration()) newTime = mDecoder.GetDuration();
@@ -173,7 +195,19 @@ bool VideoPlayerScreen::Update(Input &input) {
     if (mIsPlaying && !mIsPaused) {
         UpdatePlayback();
     }
-    
+
+    // Any button press resets the hide timer
+    if (mIsPlaying && !mIsPaused && input.data.buttons_d != 0) {
+        mUIHideTime = SDL_GetTicks() + 5000;
+        mShowSeekbar = true;
+    }
+
+    // Auto-hide seekbar after 5 seconds of no input (but not while paused)
+    if (!mIsPaused && mShowSeekbar && mUIHideTime > 0 && SDL_GetTicks() >= mUIHideTime) {
+        mShowSeekbar = false;
+        mUIHideTime = 0;
+    }
+
     return true;
 }
 
@@ -200,19 +234,18 @@ void VideoPlayerScreen::DrawPlaybackControls() {
         SDL_SetRenderDrawColor(Gfx::GetRenderer(), 0, 150, 255, 255);
         SDL_RenderFillRect(Gfx::GetRenderer(), &progressRect);
     }
-    
-    if (!mIsPlaying) {
-        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 48,
-                   Gfx::COLOR_WHITE, "Press A to Play", Gfx::ALIGN_CENTER);
-    }
 }
 
 void VideoPlayerScreen::CalculateDisplayRect(SDL_Rect& rect) {
     float videoAspect = static_cast<float>(mVideoWidth) / static_cast<float>(mVideoHeight);
     
-    int viewportHeight = mShowUI ? (Gfx::SCREEN_HEIGHT - 120) : Gfx::SCREEN_HEIGHT;
+    int topBarH = mShowTopBar ? 60 : 0;
+    int bottomH = 0;
+    if (mShowSeekbar) bottomH = 140;
+    else if (mShowUI) bottomH = 60;
+    int viewportHeight = Gfx::SCREEN_HEIGHT - topBarH - bottomH;
     int viewportWidth = Gfx::SCREEN_WIDTH;
-    int viewportY = mShowUI ? 60 : 0;
+    int viewportY = topBarH;
     float viewportAspect = static_cast<float>(viewportWidth) / static_cast<float>(viewportHeight);
     
     if (videoAspect > viewportAspect) {

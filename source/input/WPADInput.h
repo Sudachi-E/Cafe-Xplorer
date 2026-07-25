@@ -108,7 +108,7 @@ private:
         if (p & WPAD_PRO_BUTTON_DOWN)  m |= Input::BUTTON_DOWN;
         if (p & WPAD_PRO_BUTTON_L)     m |= Input::BUTTON_L;
         if (p & WPAD_PRO_BUTTON_R)     m |= Input::BUTTON_R;
-        if (p & WPAD_PRO_BUTTON_PLUS)  m |= Input::BUTTON_HOME;
+        if (p & WPAD_PRO_BUTTON_PLUS)  m |= Input::BUTTON_PLUS;
         if (p & WPAD_PRO_TRIGGER_ZL)   m |= Input::BUTTON_ZL;
         if (p & WPAD_PRO_TRIGGER_ZR)   m |= Input::BUTTON_ZR;
         if (p & WPAD_PRO_STICK_L_EMULATION_UP)    m |= Input::BUTTON_UP;

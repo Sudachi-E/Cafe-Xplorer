@@ -63,8 +63,8 @@ private:
     static constexpr uint32_t THREAD_STACK_SIZE = 256 * 1024;
 
     float mZoom;
-    int   mOffsetX;
-    int   mOffsetY;
+    float mOffsetX;
+    float mOffsetY;
     int   mRotation;
 
     float    mLastRequestedZoom;
@@ -73,8 +73,14 @@ private:
     int      mZoomSettleFrames;
     static constexpr int ZOOM_SETTLE_FRAMES = 6;
 
+    static constexpr float ZOOM_MIN  = 1.0f;
+    static constexpr float ZOOM_MAX  = 8.0f;
+    static constexpr float ZOOM_STEP = 0.05f;
+    static constexpr float PAN_SPEED = 8.0f;
+
     bool mRendering;
     bool mShouldClose;
     bool mLoadError;
+    bool mBarsHidden;
     std::string mErrorMessage;
 };

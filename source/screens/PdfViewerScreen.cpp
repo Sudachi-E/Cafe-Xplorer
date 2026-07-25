@@ -27,10 +27,10 @@ PdfViewerScreen::PdfViewerScreen(const std::string& pdfPath)
       mRequestPage(0), mRequestZoom(1.0f), mRequestRotation(0),
       mRenderThreadRunning(false), mStopThread(false),
       mThreadStack(nullptr),
-      mZoom(1.0f), mOffsetX(0), mOffsetY(0), mRotation(0),
+      mZoom(1.0f), mOffsetX(0.f), mOffsetY(0.f), mRotation(0),
       mLastRequestedZoom(-1.0f), mLastRequestedPage(-1), mLastRequestedRotation(0),
       mZoomSettleFrames(0), mRendering(false),
-      mShouldClose(false), mLoadError(false)
+      mShouldClose(false), mLoadError(false), mBarsHidden(false)
 {
     OSInitMutex(&mResultMutex);
     OSInitMutex(&mRequestMutex);
@@ -255,8 +255,10 @@ void PdfViewerScreen::Draw()
                            ? mPdfPath.substr(slash + 1) : mPdfPath;
     snprintf(title, sizeof(title), "%s", filename.c_str());
 
-    DrawTopBar(title);
-    DrawBottomBar("B: Back  PageL/PageR: Page", "Stick: Pan  ZL/ZR: Rotate", "Zoom: Zoom  X: Reset");
+    if (!mBarsHidden) {
+        DrawTopBar(title);
+        DrawBottomBar("B: Back/Reset  PageL/PageR: Page", "Stick: Pan  ZL/ZR: Rotate", "Zoom: Zoom  X: Reset  +: Toggle UI");
+    }
 
     if (mLoadError) {
         Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 - 40, 48,
@@ -275,7 +277,15 @@ void PdfViewerScreen::Draw()
 
     SDL_Rect dst;
     CalculateDisplayRect(dst);
+
+    int topBar = mBarsHidden ? 0 : VIEWPORT_Y;
+    int bottomBar = mBarsHidden ? 0 : BAR_HEIGHT;
+    SDL_Rect clip = {0, topBar, VIEWPORT_W, Gfx::SCREEN_HEIGHT - topBar - bottomBar};
+    SDL_RenderSetClipRect(Gfx::GetRenderer(), &clip);
+
     SDL_RenderCopy(Gfx::GetRenderer(), mTexture, nullptr, &dst);
+
+    SDL_RenderSetClipRect(Gfx::GetRenderer(), nullptr);
 
     // Top-right bar page indicator/zoom
     char info[64];
@@ -295,82 +305,96 @@ void PdfViewerScreen::Draw()
 
 bool PdfViewerScreen::Update(Input& input)
 {
-    if (input.data.buttons_d & Input::BUTTON_B) {
-        mShouldClose = true;
-        return false;
-    }
-
     bool pageChanged = false;
     bool zoomChanged = false;
+
+    if (input.data.buttons_d & Input::BUTTON_PLUS) {
+        mBarsHidden = !mBarsHidden;
+    }
+
+    if (input.data.buttons_d & Input::BUTTON_B) {
+        if (mZoom > ZOOM_MIN + 0.01f) {
+            mZoom = ZOOM_MIN;
+            mOffsetX = 0.f;
+            mOffsetY = 0.f;
+            zoomChanged = true;
+        } else {
+            mShouldClose = true;
+            return false;
+        }
+    }
     const float deadzone = 0.2f;
 
     if (input.data.buttons_d & Input::BUTTON_R) {
         if (mCurrentPage < mPageCount - 1) {
             mCurrentPage++;
-            mOffsetX = 0;
-            mOffsetY = 0;
+            mOffsetX = 0.f;
+            mOffsetY = 0.f;
             pageChanged = true;
         }
     }
     if (input.data.buttons_d & Input::BUTTON_L) {
         if (mCurrentPage > 0) {
             mCurrentPage--;
-            mOffsetX = 0;
-            mOffsetY = 0;
+            mOffsetX = 0.f;
+            mOffsetY = 0.f;
             pageChanged = true;
         }
     }
 
     if (input.data.buttons_d & Input::BUTTON_A) {
-        mZoom = std::min(mZoom * 1.25f, 8.0f);
+        mZoom = std::min(mZoom + ZOOM_STEP, ZOOM_MAX);
         zoomChanged = true;
     }
     if (input.data.buttons_d & Input::BUTTON_Y) {
-        mZoom = std::max(mZoom / 1.25f, 0.25f);
+        mZoom = std::max(mZoom - ZOOM_STEP, ZOOM_MIN);
         zoomChanged = true;
     }
 
-    // --- Right stick zoom
+    // Right stick zoom
     if (std::abs(input.data.rightStickY) > deadzone) {
-        mZoom += input.data.rightStickY * 0.02f;
-        mZoom  = std::max(0.25f, std::min(8.0f, mZoom));
+        mZoom += input.data.rightStickY * ZOOM_STEP;
+        mZoom  = std::max(ZOOM_MIN, std::min(ZOOM_MAX, mZoom));
         zoomChanged = true;
     }
 
     // Reset
     if (input.data.buttons_d & Input::BUTTON_X) {
-        mZoom = 1.0f;
+        mZoom = ZOOM_MIN;
+        mOffsetX = 0.f;
+        mOffsetY = 0.f;
         zoomChanged = true;
     }
 
     // Pan (only when zoomed in)
-    if (mZoom > 1.0f) {
+    if (mZoom > ZOOM_MIN + 0.01f) {
         if (std::abs(input.data.leftStickX) > deadzone ||
             std::abs(input.data.leftStickY) > deadzone) {
-            mOffsetX += static_cast<int>(input.data.leftStickX * 12.0f);
-            mOffsetY -= static_cast<int>(input.data.leftStickY * 12.0f);
+            mOffsetX -= input.data.leftStickX * PAN_SPEED * mZoom;
+            mOffsetY += input.data.leftStickY * PAN_SPEED * mZoom;
         }
-        const int panSpeed = 20;
-        if (input.data.buttons_h & Input::BUTTON_LEFT)  mOffsetX += panSpeed;
-        if (input.data.buttons_h & Input::BUTTON_RIGHT) mOffsetX -= panSpeed;
+        const int dpadPan = 20;
+        if (input.data.buttons_h & Input::BUTTON_LEFT)  mOffsetX += dpadPan;
+        if (input.data.buttons_h & Input::BUTTON_RIGHT) mOffsetX -= dpadPan;
+        if (input.data.buttons_h & Input::BUTTON_UP)    mOffsetY += dpadPan;
+        if (input.data.buttons_h & Input::BUTTON_DOWN)  mOffsetY -= dpadPan;
     } else {
-        // Not zoomed in — keep centred
-        mOffsetX = 0;
-        mOffsetY = 0;
+        mOffsetX = 0.f;
+        mOffsetY = 0.f;
     }
 
     // Rotation (ZL = counter-clockwise, ZR = clockwise)
     bool rotChanged = false;
     if (input.data.buttons_d & Input::BUTTON_ZR) {
         mRotation = (mRotation + 90) % 360;
-        mOffsetX = 0;
-        mOffsetY = 0;
+        mOffsetX = 0.f;
+        mOffsetY = 0.f;
         rotChanged = true;
     }
     if (input.data.buttons_d & Input::BUTTON_ZL) {
         mRotation = (mRotation + 270) % 360;
-        mOffsetX = 0;
-        mOffsetY = 0;
+        mOffsetX = 0.f;
+        mOffsetY = 0.f;
         rotChanged = true;
     }
 
@@ -423,18 +447,18 @@ void PdfViewerScreen::CalculateDisplayRect(SDL_Rect& rect)
     rect.w = mTexWidth;
     rect.h = mTexHeight;
 
-    // Centred position (no pan)
+    int topBar = mBarsHidden ? 0 : BAR_HEIGHT;
+    int viewportH = Gfx::SCREEN_HEIGHT - topBar * 2;
     int centreX = (VIEWPORT_W - mTexWidth)  / 2;
-    int centreY = VIEWPORT_Y + (VIEWPORT_H - mTexHeight) / 2;
+    int centreY = topBar + (viewportH - mTexHeight) / 2;
 
-    // Clamp pan so the texture never leaves the viewport.
-    // When the texture is smaller than the viewport it stays centred (offset = 0).
-    int maxOffsetX = std::max(0, (mTexWidth  - VIEWPORT_W) / 2);
-    int maxOffsetY = std::max(0, (mTexHeight - VIEWPORT_H) / 2);
+    float maxOffsetX = (mTexWidth  > VIEWPORT_W) ? (mTexWidth  - VIEWPORT_W) * 0.5f : 0.f;
+    float maxOffsetY = (mTexHeight > viewportH) ? (mTexHeight - viewportH) * 0.5f : 0.f;
+    if (mOffsetX >  maxOffsetX) mOffsetX =  maxOffsetX;
+    if (mOffsetX < -maxOffsetX) mOffsetX = -maxOffsetX;
+    if (mOffsetY >  maxOffsetY) mOffsetY =  maxOffsetY;
+    if (mOffsetY < -maxOffsetY) mOffsetY = -maxOffsetY;
 
-    mOffsetX = std::max(-maxOffsetX, std::min(maxOffsetX, mOffsetX));
-    mOffsetY = std::max(-maxOffsetY, std::min(maxOffsetY, mOffsetY));
-
-    rect.x = centreX + mOffsetX;
-    rect.y = centreY + mOffsetY;
+    rect.x = centreX + (int)mOffsetX;
+    rect.y = centreY + (int)mOffsetY;
 }

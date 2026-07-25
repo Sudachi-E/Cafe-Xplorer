@@ -30,6 +30,8 @@ private:
     bool mIsPaused;
     bool mInitialized;
     bool mShowUI;
+    bool mShowTopBar;
+    bool mShowSeekbar;
     bool mIsRawVideo;
     bool mShowRawVideoWarning;
     
@@ -42,4 +44,6 @@ private:
     
     Uint32 mWallClockStartTime;
     double mWallClockStartPTS;
+
+    Uint32 mUIHideTime;
 };

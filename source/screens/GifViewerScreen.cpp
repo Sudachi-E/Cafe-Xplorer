@@ -12,8 +12,8 @@ GifViewerScreen::GifViewerScreen(const std::string& gifPath)
     : mGifPath(gifPath),
       mFrameCount(0), mCurrentFrame(0), mLastFrameTime(0),
       mImageWidth(0), mImageHeight(0),
-      mZoom(1.0f), mOffsetX(0), mOffsetY(0),
-      mIsPlaying(true), mShouldClose(false), mLoadError(false) {
+      mZoom(1.0f), mOffsetX(0.f), mOffsetY(0.f), mFitScale(1.0f),
+      mIsPlaying(true), mShouldClose(false), mLoadError(false), mBarsHidden(false) {
 
     WHBLogPrintf("GifViewerScreen: Loading %s", gifPath.c_str());
 
@@ -73,6 +73,12 @@ GifViewerScreen::GifViewerScreen(const std::string& gifPath)
 
     mLastFrameTime = SDL_GetTicks();
     WHBLogPrintf("GifViewerScreen: Loaded successfully");
+
+    int viewportW = Gfx::SCREEN_WIDTH;
+    int viewportH = Gfx::SCREEN_HEIGHT - 120;
+    float scaleX = (float)viewportW / mImageWidth;
+    float scaleY = (float)viewportH / mImageHeight;
+    mFitScale = (scaleX < scaleY) ? scaleX : scaleY;
 }
 
 GifViewerScreen::~GifViewerScreen() {
@@ -84,8 +90,12 @@ GifViewerScreen::~GifViewerScreen() {
 void GifViewerScreen::Draw() {
     Gfx::Clear(Gfx::COLOR_BLACK);
 
-    DrawTopBar(mGifPath.c_str());
-    DrawBottomBar("B: Back", "A: Play/Pause  X: Reset", "Zoom: L/R");
+    if (!mBarsHidden) {
+        size_t slash = mGifPath.find_last_of('/');
+        std::string filename = (slash != std::string::npos) ? mGifPath.substr(slash + 1) : mGifPath;
+        DrawTopBar(filename.c_str());
+        DrawBottomBar("B: Back/Reset", "A: Play/Pause  X: Reset  +: Toggle UI", "Stick: Pan  Zoom: Zoom");
+    }
 
     if (mLoadError) {
         Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 48,
@@ -97,74 +107,97 @@ void GifViewerScreen::Draw() {
 
     SDL_Rect dst;
     CalculateDisplayRect(dst);
+
+    int topBar = mBarsHidden ? 0 : 60;
+    int bottomBar = mBarsHidden ? 0 : 60;
+    SDL_Rect clip = {0, topBar, Gfx::SCREEN_WIDTH, Gfx::SCREEN_HEIGHT - topBar - bottomBar};
+    SDL_RenderSetClipRect(Gfx::GetRenderer(), &clip);
+
     SDL_RenderCopy(Gfx::GetRenderer(), mFrames[mCurrentFrame], nullptr, &dst);
+
+    SDL_RenderSetClipRect(Gfx::GetRenderer(), nullptr);
 
     // Frame counter + zoom
     char info[64];
     snprintf(info, sizeof(info), "%d/%d  %.0f%%",
              mCurrentFrame + 1, mFrameCount, mZoom * 100.0f);
-    Gfx::Print(Gfx::SCREEN_WIDTH - 20, 80, 32, Gfx::COLOR_WHITE, info, Gfx::ALIGN_RIGHT);
-
-    if (!mIsPlaying) {
-        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT - 80, 36,
-                   Gfx::COLOR_ALT_TEXT, "Paused", Gfx::ALIGN_CENTER);
-    }
 }
 
 bool GifViewerScreen::Update(Input& input) {
+    if (input.data.buttons_d & Input::BUTTON_PLUS) {
+        mBarsHidden = !mBarsHidden;
+    }
+
     if (input.data.buttons_d & Input::BUTTON_B) {
-        mShouldClose = true;
-        return false;
+        if (mZoom > ZOOM_MIN + 0.01f) {
+            mZoom = ZOOM_MIN;
+            mOffsetX = 0.f;
+            mOffsetY = 0.f;
+        } else {
+            mShouldClose = true;
+            return false;
+        }
     }
 
     // Play / pause toggle
     if (input.data.buttons_d & Input::BUTTON_A) {
         mIsPlaying = !mIsPlaying;
         if (mIsPlaying) {
-            // Reset timer so we don't skip frames after a long pause
             mLastFrameTime = SDL_GetTicks();
         }
     }
 
     // Reset view
     if (input.data.buttons_d & Input::BUTTON_X) {
-        mZoom    = 1.0f;
-        mOffsetX = 0;
-        mOffsetY = 0;
+        mZoom    = ZOOM_MIN;
+        mOffsetX = 0.f;
+        mOffsetY = 0.f;
     }
 
-    // Zoom with L/R buttons
+    // Button zoom
     if (input.data.buttons_d & Input::BUTTON_R) {
-        mZoom *= 1.25f;
-        if (mZoom > 5.0f) mZoom = 5.0f;
+        mZoom += ZOOM_STEP;
+        if (mZoom > ZOOM_MAX) mZoom = ZOOM_MAX;
     }
     if (input.data.buttons_d & Input::BUTTON_L) {
-        mZoom /= 1.25f;
-        if (mZoom < 0.1f) mZoom = 0.1f;
+        mZoom -= ZOOM_STEP;
+        if (mZoom < ZOOM_MIN) mZoom = ZOOM_MIN;
     }
 
     // Right stick zoom
     const float deadzone = 0.2f;
     if (std::abs(input.data.rightStickY) > deadzone) {
-        mZoom += input.data.rightStickY * 0.02f;
-        if (mZoom > 5.0f) mZoom = 5.0f;
-        if (mZoom < 0.1f) mZoom = 0.1f;
+        mZoom += input.data.rightStickY * ZOOM_STEP;
+        if (mZoom > ZOOM_MAX) mZoom = ZOOM_MAX;
+        if (mZoom < ZOOM_MIN) mZoom = ZOOM_MIN;
     }
 
-    // Left stick pan
-    if (std::abs(input.data.leftStickX) > deadzone || std::abs(input.data.leftStickY) > deadzone) {
-        mOffsetX += static_cast<int>(input.data.leftStickX * 10.0f);
-        mOffsetY -= static_cast<int>(input.data.leftStickY * 10.0f);
+    // Left stick pan (only when zoomed in)
+    if (mZoom > ZOOM_MIN + 0.01f) {
+        if (std::abs(input.data.leftStickX) > deadzone || std::abs(input.data.leftStickY) > deadzone) {
+            mOffsetX -= input.data.leftStickX * PAN_SPEED * mZoom;
+            mOffsetY += input.data.leftStickY * PAN_SPEED * mZoom;
+        }
+
+        const int dpadPan = 20;
+        if (input.data.buttons_h & Input::BUTTON_LEFT)  mOffsetX -= dpadPan;
+        if (input.data.buttons_h & Input::BUTTON_RIGHT) mOffsetX += dpadPan;
+        if (input.data.buttons_h & Input::BUTTON_UP)    mOffsetY -= dpadPan;
+        if (input.data.buttons_h & Input::BUTTON_DOWN)  mOffsetY += dpadPan;
     }
 
-    // D-pad pan when zoomed in
-    if (mZoom > 1.0f) {
-        const int panSpeed = 20;
-        if (input.data.buttons_h & Input::BUTTON_LEFT)  mOffsetX += panSpeed;
-        if (input.data.buttons_h & Input::BUTTON_RIGHT) mOffsetX -= panSpeed;
-        if (input.data.buttons_h & Input::BUTTON_UP)    mOffsetY += panSpeed;
-        if (input.data.buttons_h & Input::BUTTON_DOWN)  mOffsetY -= panSpeed;
-    }
+    // Clamp pan to image bounds
+    int topBar = mBarsHidden ? 0 : 60;
+    int bottomBar = mBarsHidden ? 0 : 60;
+    int viewportH = Gfx::SCREEN_HEIGHT - topBar - bottomBar;
+    int drawW = (int)(mImageWidth * mFitScale * mZoom);
+    int drawH = (int)(mImageHeight * mFitScale * mZoom);
+    float maxPanX = (drawW > (int)Gfx::SCREEN_WIDTH) ? (drawW - Gfx::SCREEN_WIDTH) * 0.5f : 0.f;
+    float maxPanY = (drawH > viewportH) ? (drawH - viewportH) * 0.5f : 0.f;
+    if (mOffsetX >  maxPanX) mOffsetX =  maxPanX;
+    if (mOffsetX < -maxPanX) mOffsetX = -maxPanX;
+    if (mOffsetY >  maxPanY) mOffsetY =  maxPanY;
+    if (mOffsetY < -maxPanY) mOffsetY = -maxPanY;
 
     // Advance animation frame
     if (mIsPlaying && mFrameCount > 1) {
@@ -179,12 +212,15 @@ bool GifViewerScreen::Update(Input& input) {
 }
 
 void GifViewerScreen::CalculateDisplayRect(SDL_Rect& rect) {
-    int scaledW = static_cast<int>(mImageWidth  * mZoom);
-    int scaledH = static_cast<int>(mImageHeight * mZoom);
+    float scale = mFitScale * mZoom;
+    int drawW = (int)(mImageWidth  * scale);
+    int drawH = (int)(mImageHeight * scale);
 
-    int viewportH = Gfx::SCREEN_HEIGHT - 120; // top + bottom bars
-    rect.x = (Gfx::SCREEN_WIDTH  - scaledW) / 2 + mOffsetX;
-    rect.y = 60 + (viewportH - scaledH) / 2   + mOffsetY;
-    rect.w = scaledW;
-    rect.h = scaledH;
+    int topBar = mBarsHidden ? 0 : 60;
+    int bottomBar = mBarsHidden ? 0 : 60;
+    int viewportH = Gfx::SCREEN_HEIGHT - topBar - bottomBar;
+    rect.x = ((int)Gfx::SCREEN_WIDTH  - drawW) / 2 + (int)mOffsetX;
+    rect.y = topBar + (viewportH - drawH) / 2 + (int)mOffsetY;
+    rect.w = drawW;
+    rect.h = drawH;
 }
