@@ -39,6 +39,7 @@ int main(int argc, char const *argv[]) {
         FilesystemManager::MountAllFilesystems();
     } else {
         WHBLogPrintf("Full filesystem access disabled, SD card + FAT USB mode");
+        FilesystemManager::MountSdCard();
     }
 
     AXInit();

@@ -6,6 +6,7 @@ public:
     static void Initialize();
     static void MountAllFilesystems();
     static bool MountFatUsb();
+    static void MountSdCard();
     static void UnmountFatUsb();
     static bool IsFatUsbMounted();
     static bool PollDrives();

@@ -152,6 +152,26 @@ bool FilesystemManager::MountFatUsb() {
     return false;
 }
 
+void FilesystemManager::MountSdCard() {
+    if (!sMochaInitialized) {
+        WHBLogPrintf("Cannot mount SD card - Mocha not initialized");
+        return;
+    }
+
+    MochaUtilsStatus mountRes = Mocha_MountFS("storage_sd", nullptr, "/vol/external01");
+    if (mountRes == MOCHA_RESULT_SUCCESS || mountRes == MOCHA_RESULT_ALREADY_EXISTS) {
+        DIR* testDir = opendir("storage_sd:/");
+        if (testDir) {
+            closedir(testDir);
+            WHBLogPrintf("SD card accessible via storage_sd:/");
+            PathConverter::AddRootDirectory("storage_sd");
+        } else {
+            WHBLogPrintf("SD card /vol/external01 not accessible via FSA — cleaning up");
+            Mocha_UnmountFS("storage_sd");
+        }
+    }
+}
+
 void FilesystemManager::UnmountFatUsb() {
     if (sFatUsbDriveIndex < 0) {
         WHBLogPrintf("No FAT32 drive to unmount");

@@ -37,11 +37,7 @@ static bool IsPdfFile(const std::string& filename) {
 FileManagerScreen::FileManagerScreen() : mSelectedIndex(0), mScrollOffset(0), mShowContextMenu(false), mContextMenuSelection(0), mClipboardIsDirectory(false), mClipboardIsMove(false), mShowDeletionModal(false), mShowLoadingModal(false), mLoadingStartTime(0), mShowLaunchConfirmModal(false), mLaunchModalSelection(0), mLastUpdateTick(0), mHoldTimer(0.0f), mRepeatAccum(0.0f), mShowCopyProgressModal(false), mCopyProgressBytes(0), mCopyProgressTotal(0), mShowDeleteConfirmModal(false), mDeleteConfirmSelection(0), mSelectionMode(false), mMultiClipboardIsMove(false) {
     Settings::Initialize();
     
-    if (Settings::GetFullFilesystemAccess()) {
-        mFileManager.ScanDirectory("/");
-    } else {
-        mFileManager.ScanDirectory("/fs/vol/external01");
-    }
+    mFileManager.ScanDirectory("/");
 }
 
 FileManagerScreen::~FileManagerScreen() = default;
