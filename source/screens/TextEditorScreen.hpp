@@ -26,6 +26,7 @@ private:
     void OnKeyboardResult(bool confirmed, const std::string& text);
     void OnSaveAsKeyboardResult(bool confirmed, const std::string& text);
     void DrawSaveModal();
+    void HandleVerticalNav(Input& input);
     
     std::string mFilePath;
     std::vector<std::string> mLines;
@@ -40,4 +41,7 @@ private:
     bool mShowSaveModal;
     int mSaveModalSelection;
     bool mWaitingForSaveAsPath;
+    uint64_t mLastUpdateTick;
+    float mHoldTimer;
+    float mRepeatAccum;
 };

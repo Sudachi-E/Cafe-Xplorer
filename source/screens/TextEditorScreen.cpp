@@ -9,7 +9,7 @@ TextEditorScreen::TextEditorScreen(const std::string& filePath)
     : mFilePath(filePath), mCursorLine(0), mCursorCol(0), mScrollOffset(0),
       mModified(false), mShouldClose(false), mReadOnly(false), mMode(MODE_VIEW),
       mWaitingForKeyboard(false), mShowSaveModal(false), mSaveModalSelection(0),
-      mWaitingForSaveAsPath(false) {
+      mWaitingForSaveAsPath(false), mLastUpdateTick(0), mHoldTimer(0.0f), mRepeatAccum(0.0f) {
     
     if (!LoadFile()) {
         mLines.push_back("");
@@ -182,17 +182,7 @@ bool TextEditorScreen::Update(Input &input) {
     }
     
     if (mMode == MODE_VIEW) {
-        if (input.data.buttons_d & Input::BUTTON_DOWN) {
-            if (mCursorLine < mLines.size() - 1) {
-                mCursorLine++;
-            }
-        }
-        
-        if (input.data.buttons_d & Input::BUTTON_UP) {
-            if (mCursorLine > 0) {
-                mCursorLine--;
-            }
-        }
+        HandleVerticalNav(input);
         
         if (input.data.buttons_d & Input::BUTTON_Y) {
             // Enter edit mode
@@ -208,17 +198,7 @@ bool TextEditorScreen::Update(Input &input) {
             }
         }
     } else {
-        if (input.data.buttons_d & Input::BUTTON_DOWN) {
-            if (mCursorLine < mLines.size() - 1) {
-                mCursorLine++;
-            }
-        }
-        
-        if (input.data.buttons_d & Input::BUTTON_UP) {
-            if (mCursorLine > 0) {
-                mCursorLine--;
-            }
-        }
+        HandleVerticalNav(input);
         
         if (input.data.buttons_d & Input::BUTTON_A) {
             mWaitingForKeyboard = true;
@@ -302,6 +282,56 @@ void TextEditorScreen::OnSaveAsKeyboardResult(bool confirmed, const std::string&
     if (confirmed && !text.empty()) {
         if (SaveFileAs(text)) {
             mShouldClose = true;
+        }
+    }
+}
+
+void TextEditorScreen::HandleVerticalNav(Input& input) {
+    uint32_t now = SDL_GetTicks();
+    float dt = (mLastUpdateTick > 0) ? (now - mLastUpdateTick) / 1000.0f : 0.016f;
+    mLastUpdateTick = now;
+
+    bool holdingDown = (input.data.buttons_h & Input::BUTTON_DOWN) != 0;
+    bool holdingUp   = (input.data.buttons_h & Input::BUTTON_UP)   != 0;
+    bool holding     = holdingDown || holdingUp;
+
+    int navDelta = 0;
+
+    if (input.data.buttons_d & Input::BUTTON_DOWN) {
+        navDelta = 1;
+        mHoldTimer = 0.0f;
+        mRepeatAccum = 0.0f;
+    } else if (input.data.buttons_d & Input::BUTTON_UP) {
+        navDelta = -1;
+        mHoldTimer = 0.0f;
+        mRepeatAccum = 0.0f;
+    } else if (holding) {
+        mHoldTimer += dt;
+        if (mHoldTimer >= 0.3f) {
+            float interval = (mHoldTimer < 1.5f) ? 0.12f : 0.04f;
+            mRepeatAccum += dt;
+            while (mRepeatAccum >= interval) {
+                mRepeatAccum -= interval;
+                navDelta += holdingDown ? 1 : -1;
+            }
+        }
+    } else {
+        mHoldTimer = 0.0f;
+        mRepeatAccum = 0.0f;
+    }
+
+    if (navDelta != 0) {
+        int steps = (navDelta > 0) ? navDelta : -navDelta;
+        for (int s = 0; s < steps; s++) {
+            if (navDelta > 0) {
+                if (mCursorLine < mLines.size() - 1) {
+                    mCursorLine++;
+                }
+            } else {
+                if (mCursorLine > 0) {
+                    mCursorLine--;
+                }
+            }
         }
     }
 }
