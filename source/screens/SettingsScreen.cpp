@@ -10,6 +10,7 @@ SettingsScreen::SettingsScreen()
     , mSettingsChanged(false)
     , mFullFilesystemAccess(false)
     , mFtpServerEnabled(false)
+    , mShowHiddenFiles(false)
     , mShowFtpResult(false)
     , mFtpModalOption(0)
 {
@@ -19,20 +20,28 @@ SettingsScreen::SettingsScreen()
 void SettingsScreen::LoadSettings() {
     mFullFilesystemAccess = Settings::GetFullFilesystemAccess();
     mFtpServerEnabled = Settings::GetFtpServerEnabled();
+    mShowHiddenFiles = Settings::GetShowHiddenFiles();
 }
 
 void SettingsScreen::SaveSettings() {
     Settings::SetFullFilesystemAccess(mFullFilesystemAccess);
     Settings::SetFtpServerEnabled(mFtpServerEnabled);
+    Settings::SetShowHiddenFiles(mShowHiddenFiles);
     Settings::Save();
     mSettingsChanged = true;
-    WHBLogPrintf("Settings saved: full_filesystem_access=%d ftp_server_enabled=%d",
-                 mFullFilesystemAccess, mFtpServerEnabled);
+    WHBLogPrintf("Settings saved: full_filesystem_access=%d ftp_server_enabled=%d show_hidden_files=%d",
+                 mFullFilesystemAccess, mFtpServerEnabled, mShowHiddenFiles);
 }
 
 void SettingsScreen::ToggleFullFilesystemAccess() {
     mFullFilesystemAccess = !mFullFilesystemAccess;
     WHBLogPrintf("Toggled full filesystem access: %d", mFullFilesystemAccess);
+    SaveSettings();
+}
+
+void SettingsScreen::ToggleShowHiddenFiles() {
+    mShowHiddenFiles = !mShowHiddenFiles;
+    WHBLogPrintf("Toggled show hidden files: %d", mShowHiddenFiles);
     SaveSettings();
 }
 
@@ -105,7 +114,7 @@ void SettingsScreen::Draw() {
     }
 
     DrawTopBar("Settings");
-    Gfx::Print(Gfx::SCREEN_WIDTH - 40, 40, 32, Gfx::COLOR_TEXT, "v1.9", Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
+    Gfx::Print(Gfx::SCREEN_WIDTH - 40, 40, 32, Gfx::COLOR_TEXT, "v2.0(Pre-release)", Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
     Gfx::Print(Gfx::SCREEN_WIDTH / 2, 40, 48, Gfx::COLOR_TEXT, "Cafe-Xplorer", Gfx::ALIGN_CENTER);
 
     int yPos = 150;
@@ -133,6 +142,15 @@ void SettingsScreen::Draw() {
         Gfx::Print(200, ftpStatusY + 30, 20, Gfx::COLOR_TEXT,
             running ? "FTP active — toggle OFF to stop" : "Start FTP server on port 1337",
             Gfx::ALIGN_LEFT);
+    }
+
+    yPos += 80;
+    SDL_Color opt2Color = (mSelectedOption == 2) ? Gfx::COLOR_HIGHLIGHTED : Gfx::COLOR_TEXT;
+    std::string cb2 = mShowHiddenFiles ? "[X]" : "[ ]";
+    Gfx::Print(200, yPos, 28, opt2Color, cb2 + " Show Hidden Files", Gfx::ALIGN_LEFT);
+    if (mSelectedOption == 2) {
+        Gfx::Print(200, yPos + 30, 20, Gfx::COLOR_TEXT,
+            "Show files and folders starting with '.'", Gfx::ALIGN_LEFT);
     }
 
     DrawBottomBar("A: Toggle", nullptr, nullptr);
@@ -167,10 +185,10 @@ bool SettingsScreen::Update(Input& input) {
     }
 
     if (input.data.buttons_d & Input::BUTTON_DOWN) {
-        mSelectedOption = (mSelectedOption + 1) % 2;
+        mSelectedOption = (mSelectedOption + 1) % 3;
     }
     if (input.data.buttons_d & Input::BUTTON_UP) {
-        mSelectedOption = (mSelectedOption - 1 + 2) % 2;
+        mSelectedOption = (mSelectedOption - 1 + 3) % 3;
     }
 
     if (input.data.buttons_d & Input::BUTTON_A) {
@@ -178,6 +196,8 @@ bool SettingsScreen::Update(Input& input) {
             ToggleFullFilesystemAccess();
         } else if (mSelectedOption == 1) {
             ToggleFtpServer();
+        } else if (mSelectedOption == 2) {
+            ToggleShowHiddenFiles();
         }
     }
 

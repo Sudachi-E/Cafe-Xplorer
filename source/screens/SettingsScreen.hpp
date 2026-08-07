@@ -20,12 +20,14 @@ private:
     bool mSettingsChanged;
     bool mFullFilesystemAccess;
     bool mFtpServerEnabled;
+    bool mShowHiddenFiles;
     bool mShowFtpResult;
     int mFtpModalOption;
     std::string mFtpResultIP;
     
     void ToggleFullFilesystemAccess();
     void ToggleFtpServer();
+    void ToggleShowHiddenFiles();
     void SaveSettings();
     void LoadSettings();
 };

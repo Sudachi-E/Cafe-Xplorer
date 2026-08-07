@@ -95,17 +95,11 @@ void FileManagerScreen::Draw() {
     } else {
         leftText = "A: Select  X: Menu  Y: Settings";
     }
-    if (mFileManager.HasMoreEntries()) {
-        std::ostringstream oss;
-        oss << "Loaded " << mFileManager.GetEntries().size() << "/" << mFileManager.GetTotalEntryCount();
-        DrawBottomBar(leftText.c_str(), oss.str().c_str(), "B: Back  HOME: Exit");
-    } else {
-        DrawBottomBar(leftText.c_str(), "B: Back", "HOME: Exit");
-    }
+    DrawBottomBar(leftText.c_str(), "B: Back", "HOME: Exit");
     
     const auto& entries = mFileManager.GetEntries();
     
-    if (entries.empty() && !mFileManager.HasMoreEntries()) {
+    if (entries.empty()) {
         Gfx::DrawRectFilled(Gfx::SCREEN_WIDTH / 2 - 200, Gfx::SCREEN_HEIGHT / 2 - 50, 400, 100, Gfx::COLOR_ALT_BACKGROUND);
         Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 48, 
                    Gfx::COLOR_ALT_TEXT, "Empty directory", Gfx::ALIGN_CENTER);
@@ -160,11 +154,6 @@ void FileManagerScreen::Draw() {
             }
             
             y += itemHeight;
-        }
-        
-        if (mFileManager.HasMoreEntries() && mScrollOffset + visibleItems >= entries.size()) {
-            Gfx::Print(Gfx::SCREEN_WIDTH / 2, y + 20, 36, 
-                       Gfx::COLOR_ALT_TEXT, "Loading more...", Gfx::ALIGN_CENTER);
         }
     }
     
@@ -564,9 +553,7 @@ bool FileManagerScreen::Update(Input &input) {
                     mSelectedIndex = (mSelectedIndex == 0) ? entries.size() - 1 : mSelectedIndex - 1;
                 }
             }
-            if (mFileManager.HasMoreEntries() && mSelectedIndex >= entries.size() - 10) {
-                mFileManager.LoadMoreEntries();
-            }
+
         }
     }
     
@@ -708,7 +695,8 @@ bool FileManagerScreen::IsTextFile(const std::string& filename) {
            lower.ends_with(".ini") ||
            lower.ends_with(".cfg") ||
            lower.ends_with(".xml") ||
-           lower.ends_with(".md");
+           lower.ends_with(".md") ||
+           lower.ends_with(".ignore");
 }
 
 bool FileManagerScreen::IsImageFile(const std::string& filename) {

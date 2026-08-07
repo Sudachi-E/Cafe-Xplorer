@@ -6,6 +6,7 @@
 
 bool Settings::sFullFilesystemAccess = false;
 bool Settings::sFtpServerEnabled = false;
+bool Settings::sShowHiddenFiles = false;
 bool Settings::sInitialized = false;
 
 std::string Settings::GetSettingsPath() {
@@ -30,6 +31,7 @@ void Settings::Load() {
     if (!file.is_open()) {
         WHBLogPrintf("Settings file not found, using defaults");
         sFullFilesystemAccess = false;
+        sShowHiddenFiles = false;
         return;
     }
     
@@ -43,6 +45,10 @@ void Settings::Load() {
             std::string value = line.substr(19);
             sFtpServerEnabled = (value == "1" || value == "true");
             WHBLogPrintf("Loaded setting: ftp_server_enabled = %d", sFtpServerEnabled);
+        } else if (line.find("show_hidden_files=") == 0) {
+            std::string value = line.substr(18);
+            sShowHiddenFiles = (value == "1" || value == "true");
+            WHBLogPrintf("Loaded setting: show_hidden_files = %d", sShowHiddenFiles);
         }
     }
     
@@ -60,11 +66,13 @@ void Settings::Save() {
     
     file << "full_filesystem_access=" << (sFullFilesystemAccess ? "1" : "0") << std::endl;
     file << "ftp_server_enabled=" << (sFtpServerEnabled ? "1" : "0") << std::endl;
+    file << "show_hidden_files=" << (sShowHiddenFiles ? "1" : "0") << std::endl;
     file.close();
 
     WHBLogPrintf("Settings saved successfully to: %s", settingsPath.c_str());
     WHBLogPrintf("  full_filesystem_access = %d", sFullFilesystemAccess);
     WHBLogPrintf("  ftp_server_enabled = %d", sFtpServerEnabled);
+    WHBLogPrintf("  show_hidden_files = %d", sShowHiddenFiles);
 }
 
 bool Settings::GetFullFilesystemAccess() {
@@ -83,4 +91,13 @@ bool Settings::GetFtpServerEnabled() {
 
 void Settings::SetFtpServerEnabled(bool enabled) {
     sFtpServerEnabled = enabled;
+}
+
+bool Settings::GetShowHiddenFiles() {
+    if (!sInitialized) Initialize();
+    return sShowHiddenFiles;
+}
+
+void Settings::SetShowHiddenFiles(bool enabled) {
+    sShowHiddenFiles = enabled;
 }

@@ -1,6 +1,7 @@
 #include "FileManager.h"
 #include "PathConverter.hpp"
 #include "../utils/logger.h"
+#include "../utils/Settings.hpp"
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -9,15 +10,12 @@
 #include <vector>
 #include <whb/log.h>
 
-FileManager::FileManager() : mCurrentPath("/"), mHasMoreEntries(false), mTotalEntryCount(0) {
+FileManager::FileManager() : mCurrentPath("/") {
     PathConverter::Initialize();
 }
 
 bool FileManager::ScanDirectory(const std::string& path) {
     mEntries.clear();
-    mPendingEntries.clear();
-    mHasMoreEntries = false;
-    mTotalEntryCount = 0;
     
     WHBLogPrintf("Attempting to open directory: %s", path.c_str());
     
@@ -36,8 +34,7 @@ bool FileManager::ScanDirectory(const std::string& path) {
                 mEntries.push_back(fileEntry);
             }
             
-            mTotalEntryCount = mEntries.size();
-            WHBLogPrintf("Virtual root directory has %zu entries", mTotalEntryCount);
+            WHBLogPrintf("Virtual root directory has %zu entries", mEntries.size());
             return true;
         }
     }
@@ -68,8 +65,7 @@ bool FileManager::ScanDirectory(const std::string& path) {
                 mEntries.push_back(fileEntry);
             }
             
-            mTotalEntryCount = mEntries.size();
-            WHBLogPrintf("Virtual directory has %zu entries", mTotalEntryCount);
+            WHBLogPrintf("Virtual directory has %zu entries", mEntries.size());
             return true;
         }
         
@@ -83,59 +79,38 @@ bool FileManager::ScanDirectory(const std::string& path) {
     WHBLogPrintf("Set current path to: %s", mCurrentPath.c_str());
     
     struct dirent* entry;
-    std::vector<std::string> allEntryNames;
+    bool showHidden = Settings::GetShowHiddenFiles();
     while ((entry = readdir(dir)) != nullptr) {
         if (std::string(entry->d_name) == "." || std::string(entry->d_name) == "..") {
             continue;
         }
-        allEntryNames.push_back(entry->d_name);
-        
-        if (mProgressCallback && allEntryNames.size() % 100 == 0) {
-            mProgressCallback();
+        if (!showHidden && entry->d_name[0] == '.') {
+            continue;
         }
+        
+        FileEntry fileEntry;
+        fileEntry.name = entry->d_name;
+        
+        if (path.back() == '/') {
+            fileEntry.path = path + entry->d_name;
+        } else {
+            fileEntry.path = path + "/" + entry->d_name;
+        }
+        
+        std::string realEntryPath = PathConverter::ToRealPath(fileEntry.path);
+        struct stat st;
+        if (stat(realEntryPath.c_str(), &st) == 0) {
+            fileEntry.isDirectory = S_ISDIR(st.st_mode);
+            fileEntry.size = st.st_size;
+        } else {
+            fileEntry.isDirectory = false;
+            fileEntry.size = 0;
+        }
+        
+        mEntries.push_back(fileEntry);
     }
     closedir(dir);
     
-    mTotalEntryCount = allEntryNames.size();
-    WHBLogPrintf("Found %zu total entries in directory", mTotalEntryCount);
-    
-    std::sort(allEntryNames.begin(), allEntryNames.end());
-    
-    size_t entriesToLoad = std::min(ENTRIES_PER_LOAD, allEntryNames.size());
-    
-    for (size_t i = 0; i < entriesToLoad; i++) {
-        FileEntry fileEntry;
-        fileEntry.name = allEntryNames[i];
-        
-        if (path.back() == '/') {
-            fileEntry.path = path + allEntryNames[i];
-        } else {
-            fileEntry.path = path + "/" + allEntryNames[i];
-        }
-        
-        std::string realEntryPath = PathConverter::ToRealPath(fileEntry.path);
-        struct stat st;
-        if (stat(realEntryPath.c_str(), &st) == 0) {
-            fileEntry.isDirectory = S_ISDIR(st.st_mode);
-            fileEntry.size = st.st_size;
-        } else {
-            fileEntry.isDirectory = false;
-            fileEntry.size = 0;
-        }
-        
-        mEntries.push_back(fileEntry);
-        
-        if (mProgressCallback && i % 10 == 0) {
-            mProgressCallback();
-        }
-    }
-    
-    for (size_t i = entriesToLoad; i < allEntryNames.size(); i++) {
-        mPendingEntries.push_back(allEntryNames[i]);
-    }
-    
-    mHasMoreEntries = !mPendingEntries.empty();
-    
     std::sort(mEntries.begin(), mEntries.end(), [](const FileEntry& a, const FileEntry& b) {
         if (a.isDirectory != b.isDirectory) {
             return a.isDirectory;
@@ -143,54 +118,7 @@ bool FileManager::ScanDirectory(const std::string& path) {
         return a.name < b.name;
     });
     
-    WHBLogPrintf("Loaded %zu entries initially, %zu pending", mEntries.size(), mPendingEntries.size());
-    
-    return true;
-}
-
-bool FileManager::LoadMoreEntries() {
-    if (!mHasMoreEntries || mPendingEntries.empty()) {
-        return false;
-    }
-    
-    size_t entriesToLoad = std::min(ENTRIES_PER_LOAD, mPendingEntries.size());
-    WHBLogPrintf("Loading %zu more entries...", entriesToLoad);
-    
-    for (size_t i = 0; i < entriesToLoad; i++) {
-        FileEntry fileEntry;
-        fileEntry.name = mPendingEntries[i];
-        
-        if (mCurrentPath.back() == '/') {
-            fileEntry.path = mCurrentPath + mPendingEntries[i];
-        } else {
-            fileEntry.path = mCurrentPath + "/" + mPendingEntries[i];
-        }
-        
-        std::string realEntryPath = PathConverter::ToRealPath(fileEntry.path);
-        struct stat st;
-        if (stat(realEntryPath.c_str(), &st) == 0) {
-            fileEntry.isDirectory = S_ISDIR(st.st_mode);
-            fileEntry.size = st.st_size;
-        } else {
-            fileEntry.isDirectory = false;
-            fileEntry.size = 0;
-        }
-        
-        mEntries.push_back(fileEntry);
-    }
-    
-    mPendingEntries.erase(mPendingEntries.begin(), mPendingEntries.begin() + entriesToLoad);
-    
-    mHasMoreEntries = !mPendingEntries.empty();
-    
-    std::sort(mEntries.begin(), mEntries.end(), [](const FileEntry& a, const FileEntry& b) {
-        if (a.isDirectory != b.isDirectory) {
-            return a.isDirectory;
-        }
-        return a.name < b.name;
-    });
-    
-    WHBLogPrintf("Now have %zu entries loaded, %zu pending", mEntries.size(), mPendingEntries.size());
+    WHBLogPrintf("Loaded %zu entries from directory", mEntries.size());
     
     return true;
 }

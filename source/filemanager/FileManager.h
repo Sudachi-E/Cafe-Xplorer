@@ -24,10 +24,6 @@ public:
     bool MoveEntry(const std::string& sourcePath, const std::string& destDir, bool isDirectory);
     bool RenameEntry(const std::string& oldPath, const std::string& newName);
     
-    bool HasMoreEntries() const { return mHasMoreEntries; }
-    bool LoadMoreEntries();
-    size_t GetTotalEntryCount() const { return mTotalEntryCount; }
-    
     void SetProgressCallback(std::function<void()> callback) { mProgressCallback = callback; }
 
     using CopyProgressCallback = std::function<void(uint64_t, uint64_t)>;
@@ -38,11 +34,6 @@ public:
 private:
     std::vector<FileEntry> mEntries;
     std::string mCurrentPath;
-    
-    std::vector<std::string> mPendingEntries;  // Names of entries not yet loaded
-    bool mHasMoreEntries;
-    size_t mTotalEntryCount;
-    static const size_t ENTRIES_PER_LOAD = 50;  // Load 50 entries at a time
     
     std::function<void()> mProgressCallback;
     CopyProgressCallback mCopyProgressCallback;
