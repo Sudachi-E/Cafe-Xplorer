@@ -117,6 +117,7 @@ void FileManagerScreen::Draw() {
         for (size_t i = mScrollOffset; i < entries.size() && i < mScrollOffset + visibleItems; i++) {
             bool isSelected = (i == mSelectedIndex);
             bool isCheckSelected = mSelectionMode && mSelectedIndices.count(i) > 0;
+            bool isHidden = !entries[i].name.empty() && entries[i].name[0] == '.';
             
             if (isSelected) {
                 Gfx::DrawRectFilled(0, y - 5, Gfx::SCREEN_WIDTH, itemHeight, Gfx::COLOR_HIGHLIGHTED);
@@ -143,13 +144,14 @@ void FileManagerScreen::Draw() {
             std::string displayName = entries[i].isDirectory ? "[DIR] " : "      ";
             displayName += entries[i].name;
             
-            Gfx::Print(textX, y + 20, 36, isSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT, 
+            SDL_Color nameColor = isSelected ? Gfx::COLOR_WHITE : (isHidden ? Gfx::COLOR_HIDDEN : Gfx::COLOR_TEXT);
+            Gfx::Print(textX, y + 20, 36, nameColor, 
                        displayName, Gfx::ALIGN_LEFT | Gfx::ALIGN_VERTICAL);
             
             if (!entries[i].isDirectory) {
                 std::string sizeStr = FormatSize(entries[i].size);
                 Gfx::Print(Gfx::SCREEN_WIDTH - 60, y + 20, 32, 
-                           isSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_WHITE, 
+                           isSelected ? Gfx::COLOR_WHITE : (isHidden ? Gfx::COLOR_HIDDEN : Gfx::COLOR_WHITE), 
                            sizeStr, Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
             }
             

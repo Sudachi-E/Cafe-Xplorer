@@ -17,6 +17,7 @@ namespace Gfx {
     constexpr SDL_Color COLOR_ALT_TEXT       = {0xe0, 0xd0, 0xc0, 0xff};
     constexpr SDL_Color COLOR_BARS           = {0x5c, 0x3d, 0x2e, 0xff}; // Dark brown
     constexpr SDL_Color COLOR_ACCENT         = {0xd4, 0xa5, 0x74, 0xff};
+    constexpr SDL_Color COLOR_HIDDEN         = {0xbf, 0xbf, 0xbf, 0xff}; // Gray for hidden files
     constexpr SDL_Color COLOR_BAR_BOTTOM_TOP = {0x3a, 0x26, 0x1a, 0xff}; // Bar gradient top
     constexpr SDL_Color COLOR_BAR_BOTTOM_BOT = {0x28, 0x18, 0x10, 0xff}; // Bar gradient bottom
 
