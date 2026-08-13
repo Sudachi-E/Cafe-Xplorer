@@ -9,6 +9,9 @@ struct FileEntry {
     std::string path;
     bool isDirectory;
     size_t size;
+    bool isHidden;
+    std::string displayName;
+    std::string sizeText;
 };
 
 class FileManager {

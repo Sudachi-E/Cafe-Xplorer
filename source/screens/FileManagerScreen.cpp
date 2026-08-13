@@ -117,14 +117,14 @@ void FileManagerScreen::Draw() {
         for (size_t i = mScrollOffset; i < entries.size() && i < mScrollOffset + visibleItems; i++) {
             bool isSelected = (i == mSelectedIndex);
             bool isCheckSelected = mSelectionMode && mSelectedIndices.count(i) > 0;
-            bool isHidden = !entries[i].name.empty() && entries[i].name[0] == '.';
-            
+            const auto& entry = entries[i];
+
             if (isSelected) {
                 Gfx::DrawRectFilled(0, y - 5, Gfx::SCREEN_WIDTH, itemHeight, Gfx::COLOR_HIGHLIGHTED);
             } else {
                 Gfx::DrawRectFilled(0, y - 5, Gfx::SCREEN_WIDTH, itemHeight, Gfx::COLOR_ALT_BACKGROUND);
             }
-            
+
             int textX = 40;
             if (mSelectionMode) {
                 textX = 70;
@@ -140,19 +140,14 @@ void FileManagerScreen::Draw() {
                 Gfx::DrawRectFilled(boxX, boxY, 2, boxSize, Gfx::COLOR_WHITE);
                 Gfx::DrawRectFilled(boxX + boxSize - 2, boxY, 2, boxSize, Gfx::COLOR_WHITE);
             }
-            
-            std::string displayName = entries[i].isDirectory ? "[DIR] " : "      ";
-            displayName += entries[i].name;
-            
-            SDL_Color nameColor = isSelected ? Gfx::COLOR_WHITE : (isHidden ? Gfx::COLOR_HIDDEN : Gfx::COLOR_TEXT);
-            Gfx::Print(textX, y + 20, 36, nameColor, 
-                       displayName, Gfx::ALIGN_LEFT | Gfx::ALIGN_VERTICAL);
-            
-            if (!entries[i].isDirectory) {
-                std::string sizeStr = FormatSize(entries[i].size);
-                Gfx::Print(Gfx::SCREEN_WIDTH - 60, y + 20, 32, 
-                           isSelected ? Gfx::COLOR_WHITE : (isHidden ? Gfx::COLOR_HIDDEN : Gfx::COLOR_WHITE), 
-                           sizeStr, Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
+
+            SDL_Color nameColor = isSelected ? Gfx::COLOR_WHITE : (entry.isHidden ? Gfx::COLOR_HIDDEN : Gfx::COLOR_TEXT);
+            Gfx::Print(textX, y + 20, 36, nameColor, entry.displayName, Gfx::ALIGN_LEFT | Gfx::ALIGN_VERTICAL);
+
+            if (!entry.isDirectory) {
+                Gfx::Print(Gfx::SCREEN_WIDTH - 60, y + 20, 32,
+                           isSelected ? Gfx::COLOR_WHITE : (entry.isHidden ? Gfx::COLOR_HIDDEN : Gfx::COLOR_WHITE),
+                           entry.sizeText, Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
             }
             
             y += itemHeight;
@@ -671,20 +666,6 @@ bool FileManagerScreen::Update(Input &input) {
     return true;
 }
 
-std::string FileManagerScreen::FormatSize(size_t bytes) {
-    const char* units[] = {"B", "KB", "MB", "GB"};
-    int unitIndex = 0;
-    double size = static_cast<double>(bytes);
-    
-    while (size >= 1024.0 && unitIndex < 3) {
-        size /= 1024.0;
-        unitIndex++;
-    }
-    
-    std::ostringstream oss;
-    oss << std::fixed << std::setprecision(2) << size << " " << units[unitIndex];
-    return oss.str();
-}
 
 bool FileManagerScreen::IsTextFile(const std::string& filename) {
     std::string lower = filename;

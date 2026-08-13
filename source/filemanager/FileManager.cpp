@@ -7,8 +7,32 @@
 #include <unistd.h>
 #include <algorithm>
 #include <fstream>
+#include <iomanip>
+#include <sstream>
 #include <vector>
 #include <whb/log.h>
+
+static std::string FormatSizeText(size_t bytes) {
+    const char* units[] = {"B", "KB", "MB", "GB"};
+    int unitIndex = 0;
+    double size = static_cast<double>(bytes);
+
+    while (size >= 1024.0 && unitIndex < 3) {
+        size /= 1024.0;
+        unitIndex++;
+    }
+
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(2) << size << " " << units[unitIndex];
+    return oss.str();
+}
+
+static void PopulateFileEntryDisplay(FileEntry& fileEntry) {
+    fileEntry.isHidden = !fileEntry.name.empty() && fileEntry.name[0] == '.';
+    fileEntry.displayName = fileEntry.isDirectory ? "[DIR] " : "      ";
+    fileEntry.displayName += fileEntry.name;
+    fileEntry.sizeText = fileEntry.isDirectory ? std::string() : FormatSizeText(fileEntry.size);
+}
 
 FileManager::FileManager() : mCurrentPath("/") {
     PathConverter::Initialize();
@@ -31,6 +55,7 @@ bool FileManager::ScanDirectory(const std::string& path) {
                 fileEntry.path = "/" + subdir;
                 fileEntry.isDirectory = true;
                 fileEntry.size = 0;
+                PopulateFileEntryDisplay(fileEntry);
                 mEntries.push_back(fileEntry);
             }
             
@@ -62,6 +87,7 @@ bool FileManager::ScanDirectory(const std::string& path) {
                 }
                 fileEntry.isDirectory = true;
                 fileEntry.size = 0;
+                PopulateFileEntryDisplay(fileEntry);
                 mEntries.push_back(fileEntry);
             }
             
@@ -106,7 +132,9 @@ bool FileManager::ScanDirectory(const std::string& path) {
             fileEntry.isDirectory = false;
             fileEntry.size = 0;
         }
-        
+
+        PopulateFileEntryDisplay(fileEntry);
+
         mEntries.push_back(fileEntry);
     }
     closedir(dir);
@@ -117,6 +145,10 @@ bool FileManager::ScanDirectory(const std::string& path) {
         }
         return a.name < b.name;
     });
+
+    for (auto& entry : mEntries) {
+        PopulateFileEntryDisplay(entry);
+    }
     
     WHBLogPrintf("Loaded %zu entries from directory", mEntries.size());
     

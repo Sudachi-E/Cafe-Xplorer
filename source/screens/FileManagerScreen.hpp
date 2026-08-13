@@ -70,7 +70,6 @@ private:
     bool mShowFtpModal;
     std::string mFtpIp;
 
-    static std::string FormatSize(size_t bytes);
     static bool IsTextFile(const std::string& filename);
     static bool IsImageFile(const std::string& filename);
     static bool IsVideoFile(const std::string& filename);
