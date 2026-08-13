@@ -10,7 +10,6 @@ bool FilesystemManager::sMochaInitialized = false;
 int FilesystemManager::sFatUsbDriveIndex = -1;
 bool FilesystemManager::sWfsMounted[2] = {false, false};
 uint64_t FilesystemManager::sLastPollTick = 0;
-uint64_t FilesystemManager::sLastWfsProbeTick[2] = {0, 0};
 
 void FilesystemManager::Initialize() {
     if (!sMochaInitialized) {
@@ -235,34 +234,12 @@ bool FilesystemManager::PollDrives() {
             Mocha_UnmountFS(wfsNames[i]);
             PathConverter::RemoveRootDirectory(wfsNames[i]);
             sWfsMounted[i] = false;
-            sLastWfsProbeTick[i] = 0;
             changed = true;
         }
     }
 
-    const char* wfsPaths[] = {"/vol/storage_usb01", "/vol/storage_usb02"};
-    for (int i = 0; i < 2; i++) {
-        if (sWfsMounted[i]) continue;
-        int usbSlot = i + 1;
-        if (FatUsbManager::IsMounted(usbSlot)) continue;
-        if (sLastWfsProbeTick[i] != 0 && now - sLastWfsProbeTick[i] < 60000) continue;
-
-        sLastWfsProbeTick[i] = now;
-        MochaUtilsStatus mres = Mocha_MountFS(wfsNames[i], nullptr, wfsPaths[i]);
-        if (mres == MOCHA_RESULT_SUCCESS || mres == MOCHA_RESULT_ALREADY_EXISTS) {
-            std::string testPath = std::string(wfsNames[i]) + ":/";
-            DIR* d = opendir(testPath.c_str());
-            if (d) {
-                closedir(d);
-                WHBLogPrintf("[hotplug] New WFS drive detected at %s", wfsPaths[i]);
-                PathConverter::AddRootDirectory(wfsNames[i]);
-                sWfsMounted[i] = true;
-                changed = true;
-            } else {
-                Mocha_UnmountFS(wfsNames[i]);
-            }
-        }
-    }
+    // Need to move WFS runtime detection to the background OSThread
+    // as it was causing the console to freeze when left idle.
 
     if (changed) {
         WHBLogPrintf("[hotplug] Drive state changed");

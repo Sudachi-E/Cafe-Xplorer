@@ -18,5 +18,4 @@ private:
     static int sFatUsbDriveIndex;
     static bool sWfsMounted[2];
     static uint64_t sLastPollTick;
-    static uint64_t sLastWfsProbeTick[2];
 };
