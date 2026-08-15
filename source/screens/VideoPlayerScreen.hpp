@@ -40,10 +40,12 @@ private:
     
     Uint32 mPlaybackStartTime;
     double mPlaybackStartPTS;
+    double mPlaybackStartAudioPTS;
     double mFrameDelay;
-    
+
     Uint32 mWallClockStartTime;
     double mWallClockStartPTS;
 
     Uint32 mUIHideTime;
+    Uint32 mLastFrameTime;
 };

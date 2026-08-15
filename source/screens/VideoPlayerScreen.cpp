@@ -8,8 +8,8 @@ VideoPlayerScreen::VideoPlayerScreen(const std::string& videoPath)
       mLoadError(false), mIsPlaying(false), mIsPaused(false), mInitialized(false),
       mShowUI(true), mShowTopBar(true), mShowSeekbar(true), mIsRawVideo(false), mShowRawVideoWarning(false),
       mVideoWidth(1280), mVideoHeight(720), mPlaybackStartTime(0),
-      mPlaybackStartPTS(0.0), mFrameDelay(33.0),
-      mWallClockStartTime(0), mWallClockStartPTS(0.0), mUIHideTime(0) {
+      mPlaybackStartPTS(0.0), mPlaybackStartAudioPTS(0.0), mFrameDelay(33.0),
+      mWallClockStartTime(0), mWallClockStartPTS(0.0), mUIHideTime(0), mLastFrameTime(0) {
     
 }
 
@@ -125,6 +125,8 @@ bool VideoPlayerScreen::Update(Input &input) {
     if (input.data.buttons_d & Input::BUTTON_B) {
         if (mIsPlaying && !mIsPaused) {
             mIsPaused = true;
+            mPlaybackStartPTS = mDecoder.GetCurrentTime();
+            mPlaybackStartAudioPTS = mDecoder.GetAudioTime();
             mShowTopBar = true;
             mShowUI = true;
             mShowSeekbar = true;
@@ -141,12 +143,17 @@ bool VideoPlayerScreen::Update(Input &input) {
         if (!mIsPlaying) {
             mIsPlaying = true;
             mIsPaused = false;
+            mPlaybackStartTime = SDL_GetTicks();
+            mPlaybackStartPTS = mDecoder.GetCurrentTime();
+            mLastFrameTime = 0;
             mShowTopBar = false;
             mShowUI = false;
             mShowSeekbar = true;
             double videoPTS = mDecoder.GetCurrentTime();
-            double audioPTS = mDecoder.GetAudioTime();
+            mDecoder.SetPlaybackArmed(true);
             mDecoder.StartAudio();
+            mPlaybackStartAudioPTS = mDecoder.GetAudioTime();
+            double audioPTS = mPlaybackStartAudioPTS;
             const char* syncMode = mDecoder.HasAudio() ? "A-V" : "WALL-CLOCK";
             WHBLogPrintf("[SYNC] PLAY (%s) vPTS=%.2f aPTS=%.2f", syncMode, videoPTS, audioPTS);
         } else {
@@ -155,15 +162,22 @@ bool VideoPlayerScreen::Update(Input &input) {
                 mShowTopBar = false;
                 mShowUI = false;
                 mShowSeekbar = true;
+                mPlaybackStartTime = SDL_GetTicks();
+                mPlaybackStartPTS = mDecoder.GetCurrentTime();
+                mLastFrameTime = 0;
                 double videoPTS = mDecoder.GetCurrentTime();
-                double audioPTS = mDecoder.GetAudioTime();
+                mDecoder.SetPlaybackArmed(true);
                 mDecoder.PauseAudio(false);
+                // Snapshot audio PTS after resuming audio so baseline is fresh
+                mPlaybackStartAudioPTS = mDecoder.GetAudioTime();
+                double audioPTS = mPlaybackStartAudioPTS;
                 const char* syncMode = mDecoder.HasAudio() ? "A-V" : "WALL-CLOCK";
                 WHBLogPrintf("[SYNC] RESUME (%s) vPTS=%.2f aPTS=%.2f", syncMode, videoPTS, audioPTS);
             } else {
                 mShowTopBar = true;
                 mShowUI = true;
                 mShowSeekbar = true;
+                mDecoder.SetPlaybackArmed(false);
                 mDecoder.PauseAudio(true);
                 WHBLogPrintf("[SYNC] PAUSE");
             }
@@ -175,8 +189,15 @@ bool VideoPlayerScreen::Update(Input &input) {
         Uint32 seekStart = SDL_GetTicks();
         double newTime = mDecoder.GetCurrentTime() - 10.0;
         if (newTime < 0) newTime = 0;
+        mDecoder.SetPlaybackArmed(false);
         mDecoder.Seek(newTime);
         mWallClockStartTime = 0; // Reset wall-clock sync after seek (fixes AVI seek freezing)
+        mPlaybackStartTime = SDL_GetTicks();
+        mPlaybackStartPTS = mDecoder.GetCurrentTime();
+        mLastFrameTime = 0;
+        if (mIsPlaying && !mIsPaused) {
+            mDecoder.SetPlaybackArmed(true);
+        }
         Uint32 seekEnd = SDL_GetTicks();
         WHBLogPrintf("[SYNC] Seek back took %ums", seekEnd - seekStart);
     }
@@ -186,8 +207,15 @@ bool VideoPlayerScreen::Update(Input &input) {
         Uint32 seekStart = SDL_GetTicks();
         double newTime = mDecoder.GetCurrentTime() + 10.0;
         if (newTime > mDecoder.GetDuration()) newTime = mDecoder.GetDuration();
+        mDecoder.SetPlaybackArmed(false);
         mDecoder.Seek(newTime);
         mWallClockStartTime = 0; // Reset wall-clock sync after seek (fixes AVI seek freezing)
+        mPlaybackStartTime = SDL_GetTicks();
+        mPlaybackStartPTS = mDecoder.GetCurrentTime();
+        mLastFrameTime = 0;
+        if (mIsPlaying && !mIsPaused) {
+            mDecoder.SetPlaybackArmed(true);
+        }
         Uint32 seekEnd = SDL_GetTicks();
         WHBLogPrintf("[SYNC] Seek forward took %ums", seekEnd - seekStart);
     }
@@ -213,23 +241,28 @@ bool VideoPlayerScreen::Update(Input &input) {
 
 void VideoPlayerScreen::DrawPlaybackControls() {
     
+    double displayTime = (mIsPlaying && !mIsPaused) ? mDecoder.GetCurrentTime() : mPlaybackStartPTS;
+    if (displayTime < 0.0) {
+        displayTime = 0.0;
+    }
+
     char timeStr[64];
-    snprintf(timeStr, sizeof(timeStr), "%.1f / %.1f s", 
-             mDecoder.GetCurrentTime(), mDecoder.GetDuration());
-    Gfx::Print(Gfx::SCREEN_WIDTH - 40, Gfx::SCREEN_HEIGHT - 100, 36, 
+    snprintf(timeStr, sizeof(timeStr), "%.1f / %.1f s",
+             displayTime, mDecoder.GetDuration());
+    Gfx::Print(Gfx::SCREEN_WIDTH - 40, Gfx::SCREEN_HEIGHT - 100, 36,
                Gfx::COLOR_WHITE, timeStr, Gfx::ALIGN_RIGHT);
-    
+
     int barWidth = Gfx::SCREEN_WIDTH - 80;
     int barHeight = 8;
     int barX = 40;
     int barY = Gfx::SCREEN_HEIGHT - 140;
-    
+
     SDL_Rect bgRect = {barX, barY, barWidth, barHeight};
     SDL_SetRenderDrawColor(Gfx::GetRenderer(), 60, 60, 60, 255);
     SDL_RenderFillRect(Gfx::GetRenderer(), &bgRect);
-    
+
     if (mDecoder.GetDuration() > 0) {
-        int progressWidth = (int)(barWidth * (mDecoder.GetCurrentTime() / mDecoder.GetDuration()));
+        int progressWidth = (int)(barWidth * (displayTime / mDecoder.GetDuration()));
         SDL_Rect progressRect = {barX, barY, progressWidth, barHeight};
         SDL_SetRenderDrawColor(Gfx::GetRenderer(), 0, 150, 255, 255);
         SDL_RenderFillRect(Gfx::GetRenderer(), &progressRect);
@@ -264,109 +297,121 @@ void VideoPlayerScreen::CalculateDisplayRect(SDL_Rect& rect) {
 void VideoPlayerScreen::UpdatePlayback() {
     static Uint32 lastLogTime = 0;
     static int framesDecoded = 0;
-    static Uint32 lastFrameTime = 0;
     static Uint32 totalFrameTime = 0;
     static int frameTimings = 0;
     static int framesSkipped = 0;
     static int framesDropped = 0;
     static int framesCatchup = 0;
-    
+
     Uint32 updateStartTime = SDL_GetTicks();
-    
+
     double videoPTS = mDecoder.GetCurrentTime();
     double audioPTS = mDecoder.GetAudioTime();
+    double targetPts = mPlaybackStartPTS;
     double avDrift = 0.0;
-    
+
     Uint32 currentTime = SDL_GetTicks();
-    Uint32 timeSinceLastFrame = currentTime - lastFrameTime;
-    
+    Uint32 timeSinceLastFrame = (mLastFrameTime == 0) ? 0 : (currentTime - mLastFrameTime);
     bool shouldDecode = false;
-    bool dropFrame = false;
-    int framesToDecode = 1;
-    
-    // For video-only files, use wall-clock time for sync instead of audio PTS
+
+    if (!mDecoder.IsPlaybackArmed()) {
+        return;
+    }
+
     if (!mDecoder.HasAudio()) {
-        // Initialize wall-clock timing on first frame
         if (mWallClockStartTime == 0) {
             mWallClockStartTime = currentTime;
-            mWallClockStartPTS = videoPTS;
+            mWallClockStartPTS = mPlaybackStartPTS;
         }
-        
-        // Calculate expected video time based on wall-clock
+
         double elapsedWallTime = (currentTime - mWallClockStartTime) / 1000.0;
-        double expectedVideoPTS = mWallClockStartPTS + elapsedWallTime;
-        avDrift = videoPTS - expectedVideoPTS;
-        
-        // Simple frame-rate based timing for video-only
-        if (timeSinceLastFrame >= (Uint32)mFrameDelay) {
-            shouldDecode = true;
-        } else {
-            framesSkipped++;
-        }
+        targetPts = mWallClockStartPTS + elapsedWallTime;
+        avDrift = videoPTS - targetPts;
+
+        shouldDecode = (timeSinceLastFrame == 0) || (timeSinceLastFrame >= (Uint32)mFrameDelay);
     } else {
-        // Audio-video sync logic
-        avDrift = videoPTS - audioPTS;
-        
-        if (avDrift < -0.1) {
-            shouldDecode = true;
-            framesCatchup++;
-            
-            if (avDrift < -0.2) {
-                framesToDecode = (avDrift < -0.3) ? 3 : 2;
-                dropFrame = true;
-            }
-        } else if (avDrift > 0.1) {
-            double compensatedDelay = mFrameDelay + (avDrift * 1000.0);
-            if (timeSinceLastFrame >= (Uint32)compensatedDelay) {
-                shouldDecode = true;
-            } else {
-                framesSkipped++;
-            }
+        double audioElapsed = audioPTS - mPlaybackStartAudioPTS;
+        if (audioElapsed < 0.0) {
+            audioElapsed = 0.0;
+        }
+        targetPts = mPlaybackStartPTS + audioElapsed;
+        avDrift = videoPTS - targetPts;
+
+        if (avDrift > maxLead) {
+            shouldDecode = false;
         } else {
-            if (timeSinceLastFrame >= (Uint32)mFrameDelay) {
-                shouldDecode = true;
-            } else {
-                framesSkipped++;
+            shouldDecode = true;
+            if (avDrift < -0.15) {
+                framesCatchup++;
             }
         }
     }
-    
-    if (shouldDecode) {
-        Uint32 decodeStartTime = SDL_GetTicks();
-        
-        for (int i = 0; i < framesToDecode; i++) {
-            bool isLastFrame = (i == framesToDecode - 1);
-            SDL_Texture* targetTexture = (dropFrame && !isLastFrame) ? nullptr : mVideoTexture;
-            
-            if (!mDecoder.ReadFrame(targetTexture)) {
-                mIsPlaying = false;
-                mDecoder.StopAudio();
-                WHBLogPrintf("[SYNC] End of video");
-                // Reset wall-clock timing for next playback
-                mWallClockStartTime = 0;
-                return;
-            }
-            
-            framesDecoded++;
-            if (dropFrame && !isLastFrame) {
-                framesDropped++;
-            }
-            
-            if (i < framesToDecode - 1) {
-                videoPTS = mDecoder.GetCurrentTime();
-                if (mDecoder.HasAudio()) {
-                    audioPTS = mDecoder.GetAudioTime();
-                    avDrift = videoPTS - audioPTS;
-                }
-            }
+
+    if (!shouldDecode) {
+        framesSkipped++;
+        Uint32 now = SDL_GetTicks();
+        if ((now - lastLogTime) > 2000) {
+            double avgFrameTime = frameTimings > 0 ? (double)totalFrameTime / frameTimings : 0;
+            const char* syncMode = mDecoder.HasAudio() ? "A-V" : "WALL-CLOCK";
+            WHBLogPrintf("[SYNC] %s mode: vPTS=%.2f aPTS=%.2f drift=%.0fms decoded=%d skipped=%d dropped=%d catchup=%d",
+                         syncMode, videoPTS, audioPTS, avDrift * 1000.0, framesDecoded, framesSkipped, framesDropped, framesCatchup);
+            WHBLogPrintf("[SYNC] Timing: update=%ums avgFrame=%.1fms targetDelay=%.1fms",
+                         SDL_GetTicks() - updateStartTime, avgFrameTime, mFrameDelay);
+            lastLogTime = now;
+            framesDecoded = 0;
+            framesSkipped = 0;
+            framesDropped = 0;
+            framesCatchup = 0;
+            totalFrameTime = 0;
+            frameTimings = 0;
         }
-        
-        Uint32 decodeEndTime = SDL_GetTicks();
-        Uint32 frameTime = decodeEndTime - decodeStartTime;
-        totalFrameTime += frameTime;
-        frameTimings++;
-        
-        lastFrameTime = currentTime;
+        return;
+    }
+
+    Uint32 decodeStartTime = SDL_GetTicks();
+    double beforePTS = videoPTS;
+
+    int catchUpLimit = 4;
+    int catchUpPresents = 0;
+    bool atEnd = false;
+    while (catchUpPresents < catchUpLimit) {
+        double curVideo = mDecoder.GetCurrentTime();
+        double curAudio = mDecoder.GetAudioTime();
+        double curTarget = mPlaybackStartPTS + (curAudio - mPlaybackStartAudioPTS);
+        if (curTarget < 0.0) {
+            curTarget = 0.0;
+        }
+        if (curVideo >= curTarget - 0.02) {
+            break;
+        }
+
+        if (!mDecoder.ReadFrame(mVideoTexture, curTarget)) {
+            if (mDecoder.GetCurrentTime() <= beforePTS) {
+                atEnd = true;
+            }
+            break;
+        }
+
+        if (mDecoder.GetCurrentTime() > beforePTS) {
+            framesDecoded++;
+            mLastFrameTime = currentTime;
+            catchUpPresents++;
+            Uint32 decodeEndTime = SDL_GetTicks();
+            totalFrameTime += decodeEndTime - decodeStartTime;
+            frameTimings++;
+        } else {
+            break;
+        }
+        beforePTS = mDecoder.GetCurrentTime();
+    }
+
+    if (atEnd) {
+        mIsPlaying = false;
+        mDecoder.StopAudio();
+        mDecoder.SetPlaybackArmed(false); // stop the frame worker at EOF
+        WHBLogPrintf("[SYNC] End of video");
+        mWallClockStartTime = 0;
+        return;
     }
     
     Uint32 updateEndTime = SDL_GetTicks();
@@ -377,7 +422,7 @@ void VideoPlayerScreen::UpdatePlayback() {
         double avgFrameTime = frameTimings > 0 ? (double)totalFrameTime / frameTimings : 0;
         
         const char* syncMode = mDecoder.HasAudio() ? "A-V" : "WALL-CLOCK";
-        WHBLogPrintf("[SYNC] %s mode: vPTS=%.2f aPTS=%.2f drift=%.0fms decoded=%d skipped=%d dropped=%d catchup=%d", 
+        WHBLogPrintf("[SYNC] %s mode: vPTS=%.2f aPTS=%.2f drift=%.0fms decoded=%d skipped=%d dropped=%d catchup=%d",
                      syncMode, videoPTS, audioPTS, avDrift * 1000.0, framesDecoded, framesSkipped, framesDropped, framesCatchup);
         WHBLogPrintf("[SYNC] Timing: update=%ums avgFrame=%.1fms targetDelay=%.1fms", 
                      updateDuration, avgFrameTime, mFrameDelay);
@@ -397,9 +442,6 @@ void VideoPlayerScreen::InitializeVideo() {
     WHBLogPrintf("[PERF] InitializeVideo: Starting initialization");
     
     mInitialized = true;
-    
-    char pathMsg[256];
-    snprintf(pathMsg, sizeof(pathMsg), "Opening: %s", mVideoPath.c_str());
     
     Uint32 openStart = SDL_GetTicks();
     if (!mDecoder.Open(mVideoPath)) {
@@ -457,36 +499,9 @@ void VideoPlayerScreen::InitializeVideo() {
     double fps = mDecoder.GetFrameRate();
     mFrameDelay = 1000.0 / fps;
     
-    Uint32 waitStart = SDL_GetTicks();
-    if (mDecoder.HasVideo()) {
-        WHBLogPrintf("[PERF] InitializeVideo: Waiting for first frame to decode...");
-        double initialTime = mDecoder.GetCurrentTime();
-        int waitAttempts = 0;
-        bool frameDecoded = false;
-        
-        while (waitAttempts < 100 && !frameDecoded) {
-            SDL_Delay(10);
-            waitAttempts++;
-            
-            mDecoder.ReadFrame(mVideoTexture);
-            
-            double newTime = mDecoder.GetCurrentTime();
-            if (newTime > initialTime) {
-                frameDecoded = true;
-                WHBLogPrintf("[PERF] InitializeVideo: First frame decoded successfully after %d attempts (%.3fs)", 
-                             waitAttempts, newTime);
-                break;
-            }
-        }
-        
-        if (!frameDecoded) {
-            WHBLogPrintf("[PERF] InitializeVideo: Warning - No frame decoded after timeout");
-        }
-    }
-    Uint32 waitEnd = SDL_GetTicks();
-    WHBLogPrintf("[PERF] InitializeVideo: First frame decode took %u ms", waitEnd - waitStart);
-    
+    mDecoder.SetPlaybackArmed(false);
+
     Uint32 initEnd = SDL_GetTicks();
-    WHBLogPrintf("[PERF] InitializeVideo: Total initialization took %u ms (FPS=%.2f, delay=%.2fms)", 
+    WHBLogPrintf("[PERF] InitializeVideo: Total initialization took %u ms (FPS=%.2f, delay=%.2fms)",
                  initEnd - initStart, fps, mFrameDelay);
 }

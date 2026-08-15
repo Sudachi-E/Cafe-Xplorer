@@ -3,15 +3,21 @@
 
 VideoDecoder::VideoDecoder()
     : mFormatCtx(nullptr), mVideoCodecCtx(nullptr), mAudioCodecCtx(nullptr),
-      mSwsCtx(nullptr), mSwrCtx(nullptr), mAvioCtx(nullptr), mFrame(nullptr), 
-      mFrameRGB(nullptr), mAudioFrame(nullptr), mPacket(nullptr), 
+      mSwsCtx(nullptr), mSwrCtx(nullptr), mAvioCtx(nullptr), mFrame(nullptr),
+      mFrameRGB(nullptr), mAudioFrame(nullptr), mPacket(nullptr),
       mVideoStreamIndex(-1), mAudioStreamIndex(-1), mWidth(0), mHeight(0),
-      mDuration(0.0), mCurrentTime(0.0), mAudioTime(0.0), mBuffer(nullptr), 
-      mAvioBuffer(nullptr), mAudioBuffer(nullptr), mAudioBufferSize(0), 
-      mAudioBufferIndex(0), mAudioDevice(0), mPacketMutex(nullptr), 
-      mAudioPacket(nullptr), mPacketReaderThread(nullptr), mFile(nullptr) {
+      mDuration(0.0), mCurrentTime(0.0), mAudioTime(0.0), mBuffer(nullptr),
+      mAvioBuffer(nullptr), mAudioBuffer(nullptr), mAudioBufferSize(0),
+      mAudioBufferIndex(0), mReadyBuf(nullptr), mReadyBufSize(0),
+      mAudioDevice(0), mPacketMutex(nullptr),
+      mVideoDecodeMutex(nullptr), mAudioPacket(nullptr), mPacketReaderThread(nullptr),
+      mReaderReachedEOF(0), mFrameWorkerThread(nullptr), mFile(nullptr) {
     mPacketMutex = SDL_CreateMutex();
+    mVideoDecodeMutex = SDL_CreateMutex();
     SDL_AtomicSet(&mReaderThreadRunning, 0);
+    SDL_AtomicSet(&mFrameWorkerRunning, 0);
+    SDL_AtomicSet(&mPlaybackArmed, 0);
+    SDL_AtomicSet(&mDecodeEpoch, 0);
 }
 
 VideoDecoder::~VideoDecoder() {
@@ -19,6 +25,10 @@ VideoDecoder::~VideoDecoder() {
     if (mPacketMutex) {
         SDL_DestroyMutex(mPacketMutex);
         mPacketMutex = nullptr;
+    }
+    if (mVideoDecodeMutex) {
+        SDL_DestroyMutex(mVideoDecodeMutex);
+        mVideoDecodeMutex = nullptr;
     }
 }
 
@@ -331,14 +341,16 @@ bool VideoDecoder::Open(const std::string& path) {
             return false;
         }
         
-        mVideoCodecCtx->thread_count = 2;
+        mVideoCodecCtx->thread_count = 4;
         mVideoCodecCtx->thread_type = FF_THREAD_SLICE;
+
         if (codecParams->codec_id == AV_CODEC_ID_H264) {
             mVideoCodecCtx->flags2 |= AV_CODEC_FLAG2_FAST;
             mVideoCodecCtx->skip_loop_filter = AVDISCARD_NONREF;
+            mVideoCodecCtx->skip_frame = AVDISCARD_NONREF;
         }
-        WHBLogPrintf("VideoDecoder::Open: Enabled multi-threading (2 threads) and fast decode");
-        
+        WHBLogPrintf("VideoDecoder::Open: Enabled multi-threading (%d threads) and fast decode", mVideoCodecCtx->thread_count);
+
         if (avcodec_open2(mVideoCodecCtx, codec, nullptr) < 0) {
             WHBLogPrintf("VideoDecoder::Open: FAILED - Could not open video codec");
             mWidth = -7;
@@ -346,7 +358,7 @@ bool VideoDecoder::Open(const std::string& path) {
             Close();
             return false;
         }
-        
+
         mWidth = mVideoCodecCtx->width;
         mHeight = mVideoCodecCtx->height;
         WHBLogPrintf("VideoDecoder::Open: Video codec opened. Dimensions: %dx%d", mWidth, mHeight);
@@ -357,18 +369,18 @@ bool VideoDecoder::Open(const std::string& path) {
         mWidth = 1;
         mHeight = 1;
     }
-    
+
     if (mAudioStreamIndex != -1) {
         WHBLogPrintf("VideoDecoder::Open: Setting up audio codec");
-        
+
         AVCodecParameters* audioCodecParams = mFormatCtx->streams[mAudioStreamIndex]->codecpar;
         WHBLogPrintf("VideoDecoder::Open: Audio codec ID: %d", audioCodecParams->codec_id);
         WHBLogPrintf("VideoDecoder::Open: Audio codec name: %s", avcodec_get_name(audioCodecParams->codec_id));
-        
+
         const AVCodec* audioCodec = avcodec_find_decoder(audioCodecParams->codec_id);
         if (!audioCodec) {
             WHBLogPrintf("VideoDecoder::Open: WARNING - Audio codec not found for ID %d", audioCodecParams->codec_id);
-            
+
             audioCodec = avcodec_find_decoder_by_name("mp3");
             if (!audioCodec) {
                 audioCodec = avcodec_find_decoder_by_name("mp3float");
@@ -376,7 +388,7 @@ bool VideoDecoder::Open(const std::string& path) {
             if (!audioCodec) {
                 audioCodec = avcodec_find_decoder_by_name("mp3on4");
             }
-            
+
             if (audioCodec) {
                 WHBLogPrintf("VideoDecoder::Open: Found alternative MP3 decoder: %s", audioCodec->name);
             } else {
@@ -385,10 +397,10 @@ bool VideoDecoder::Open(const std::string& path) {
                 mHeight = 4;
             }
         }
-        
+
         if (audioCodec) {
             WHBLogPrintf("VideoDecoder::Open: Audio codec found: %s", audioCodec->name);
-            
+
             mAudioCodecCtx = avcodec_alloc_context3(audioCodec);
             if (!mAudioCodecCtx) {
                 WHBLogPrintf("VideoDecoder::Open: WARNING - Could not allocate audio codec context");
@@ -403,20 +415,20 @@ bool VideoDecoder::Open(const std::string& path) {
                     WHBLogPrintf("VideoDecoder::Open: Audio codec opened successfully");
                     WHBLogPrintf("  Sample rate: %d Hz", mAudioCodecCtx->sample_rate);
                     WHBLogPrintf("  Channels: %d", mAudioCodecCtx->channels);
-                    WHBLogPrintf("  Format: %d (%s)", mAudioCodecCtx->sample_fmt, 
+                    WHBLogPrintf("  Format: %d (%s)", mAudioCodecCtx->sample_fmt,
                                  av_get_sample_fmt_name(mAudioCodecCtx->sample_fmt));
-                    
+
                     mSwrCtx = swr_alloc();
                     if (mSwrCtx) {
-                        av_opt_set_int(mSwrCtx, "in_channel_layout", mAudioCodecCtx->channel_layout ? 
+                        av_opt_set_int(mSwrCtx, "in_channel_layout", mAudioCodecCtx->channel_layout ?
                                        mAudioCodecCtx->channel_layout : av_get_default_channel_layout(mAudioCodecCtx->channels), 0);
-                        av_opt_set_int(mSwrCtx, "out_channel_layout", mAudioCodecCtx->channel_layout ? 
+                        av_opt_set_int(mSwrCtx, "out_channel_layout", mAudioCodecCtx->channel_layout ?
                                        mAudioCodecCtx->channel_layout : av_get_default_channel_layout(mAudioCodecCtx->channels), 0);
                         av_opt_set_int(mSwrCtx, "in_sample_rate", mAudioCodecCtx->sample_rate, 0);
                         av_opt_set_int(mSwrCtx, "out_sample_rate", mAudioCodecCtx->sample_rate, 0);
                         av_opt_set_sample_fmt(mSwrCtx, "in_sample_fmt", mAudioCodecCtx->sample_fmt, 0);
                         av_opt_set_sample_fmt(mSwrCtx, "out_sample_fmt", AV_SAMPLE_FMT_S16, 0);
-                        
+
                         if (swr_init(mSwrCtx) < 0) {
                             WHBLogPrintf("VideoDecoder::Open: WARNING - Could not initialize audio resampler");
                             swr_free(&mSwrCtx);
@@ -429,19 +441,19 @@ bool VideoDecoder::Open(const std::string& path) {
             }
         }
     }
-    
+
     if (mFormatCtx->duration != AV_NOPTS_VALUE) {
         mDuration = mFormatCtx->duration / (double)AV_TIME_BASE;
         WHBLogPrintf("VideoDecoder::Open: Duration: %.2f seconds", mDuration);
     } else {
         WHBLogPrintf("VideoDecoder::Open: WARNING - Duration not available");
     }
-    
+
     WHBLogPrintf("VideoDecoder::Open: Allocating frames");
     mFrame = av_frame_alloc();
     mPacket = av_packet_alloc();
     mAudioPacket = av_packet_alloc();
-    
+
     if (!mFrame || !mPacket || !mAudioPacket) {
         WHBLogPrintf("VideoDecoder::Open: FAILED - Could not allocate frame or packet");
         mWidth = -8;
@@ -449,7 +461,7 @@ bool VideoDecoder::Open(const std::string& path) {
         Close();
         return false;
     }
-    
+
     if (mVideoStreamIndex != -1) {
         WHBLogPrintf("VideoDecoder::Open: Allocating video-specific resources");
         mFrameRGB = av_frame_alloc();
@@ -460,15 +472,15 @@ bool VideoDecoder::Open(const std::string& path) {
             Close();
             return false;
         }
-        
+
         int numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGBA, mWidth, mHeight, 1);
         WHBLogPrintf("VideoDecoder::Open: Allocating RGB buffer (%d bytes)", numBytes);
         mBuffer = (uint8_t*)av_malloc(numBytes * sizeof(uint8_t));
         av_image_fill_arrays(mFrameRGB->data, mFrameRGB->linesize, mBuffer,
                             AV_PIX_FMT_RGBA, mWidth, mHeight, 1);
-        
+
         WHBLogPrintf("VideoDecoder::Open: Initializing SWS context");
-        
+
         if (mVideoCodecCtx->pix_fmt == AV_PIX_FMT_NONE) {
             WHBLogPrintf("VideoDecoder::Open: FAILED - Invalid pixel format AV_PIX_FMT_NONE");
             mWidth = -10;
@@ -476,18 +488,18 @@ bool VideoDecoder::Open(const std::string& path) {
             Close();
             return false;
         }
-        
+
         int swsFlags = SWS_FAST_BILINEAR;
-        
+
         if (mVideoCodecCtx->codec_id == AV_CODEC_ID_RAWVIDEO) {
             swsFlags = SWS_POINT;
             WHBLogPrintf("VideoDecoder::Open: Using SWS_POINT (fastest) for raw video");
         }
-        
+
         mSwsCtx = sws_getContext(mWidth, mHeight, mVideoCodecCtx->pix_fmt,
                                 mWidth, mHeight, AV_PIX_FMT_RGBA,
                                 swsFlags, nullptr, nullptr, nullptr);
-        
+
         if (!mSwsCtx) {
             WHBLogPrintf("VideoDecoder::Open: FAILED - Could not initialize SWS context");
             mWidth = -9;
@@ -495,11 +507,11 @@ bool VideoDecoder::Open(const std::string& path) {
             Close();
             return false;
         }
-        
+
         // This ensures correct color conversion for YUVJ formats
         int srcRange = 0;
         int dstRange = 1;
-        
+
         // Detect JPEG pixel formats (YUVJ*)
         if (mVideoCodecCtx->pix_fmt == AV_PIX_FMT_YUVJ420P ||
             mVideoCodecCtx->pix_fmt == AV_PIX_FMT_YUVJ422P ||
@@ -508,22 +520,36 @@ bool VideoDecoder::Open(const std::string& path) {
             srcRange = 1;
             WHBLogPrintf("VideoDecoder::Open: Detected JPEG pixel format, using full-range YUV");
         }
-        
+
         int *inv_table, *table;
         int brightness, contrast, saturation;
         sws_getColorspaceDetails(mSwsCtx, &inv_table, &srcRange, &table, &dstRange,
                                  &brightness, &contrast, &saturation);
-        
+
         // Update with correct range
         sws_setColorspaceDetails(mSwsCtx, inv_table, srcRange, table, dstRange,
                                  brightness, contrast, saturation);
     } else {
         WHBLogPrintf("VideoDecoder::Open: Skipping video-specific resources (audio-only)");
     }
-    
+
     WHBLogPrintf("VideoDecoder::Open: SUCCESS - File opened and ready");
-    
+
     SDL_AtomicSet(&mReaderThreadRunning, 1);
+    SDL_AtomicSet(&mReaderReachedEOF, 0);
+    SDL_AtomicSet(&mPlaybackArmed, 0);
+    SDL_AtomicSet(&mDecodeEpoch, 1);
+    if (mVideoStreamIndex != -1) {
+        SDL_AtomicSet(&mFrameWorkerRunning, 1);
+        mFrameWorkerThread = SDL_CreateThread(FrameWorkerThreadFunc, "FrameWorker", this);
+        if (!mFrameWorkerThread) {
+            WHBLogPrintf("VideoDecoder::Open: WARNING - Failed to create frame worker thread");
+            SDL_AtomicSet(&mFrameWorkerRunning, 0);
+        } else {
+            WHBLogPrintf("VideoDecoder::Open: Frame worker thread started");
+        }
+    }
+
     mPacketReaderThread = SDL_CreateThread(PacketReaderThreadFunc, "PacketReader", this);
     if (!mPacketReaderThread) {
         WHBLogPrintf("VideoDecoder::Open: WARNING - Failed to create packet reader thread");
@@ -541,9 +567,136 @@ void VideoDecoder::Close() {
         SDL_WaitThread(mPacketReaderThread, nullptr);
         mPacketReaderThread = nullptr;
     }
-    
+
+    if (mFrameWorkerThread) {
+        WHBLogPrintf("VideoDecoder::Close: Stopping frame worker thread");
+        SDL_AtomicSet(&mFrameWorkerRunning, 0);
+        SDL_WaitThread(mFrameWorkerThread, nullptr);
+        mFrameWorkerThread = nullptr;
+    }
+
+    SDL_LockMutex(mPacketMutex);
+    while (!mVideoPacketQueue.empty()) {
+        AVPacket* pkt = mVideoPacketQueue.front();
+        mVideoPacketQueue.pop_front();
+        av_packet_free(&pkt);
+    }
+    while (!mAudioPacketQueue.empty()) {
+        AVPacket* pkt = mAudioPacketQueue.front();
+        mAudioPacketQueue.pop_front();
+        av_packet_free(&pkt);
+    }
+    mReadyFrameQueue.clear();
+    SDL_UnlockMutex(mPacketMutex);
+
     StopAudio();
-    
+
+    SDL_AtomicAdd(&mDecodeEpoch, 1);
+
+    if (mSwsCtx) {
+        sws_freeContext(mSwsCtx);
+        mSwsCtx = nullptr;
+    }
+
+    if (mSwrCtx) {
+        swr_free(&mSwrCtx);
+        mSwrCtx = nullptr;
+    }
+
+    if (mBuffer) {
+        av_free(mBuffer);
+        mBuffer = nullptr;
+    }
+
+    if (mAudioBuffer) {
+        av_free(mAudioBuffer);
+        mAudioBuffer = nullptr;
+        mAudioBufferSize = 0;
+        mAudioBufferIndex = 0;
+    }
+
+    if (mReadyBuf) {
+        av_free(mReadyBuf);
+        mReadyBuf = nullptr;
+        mReadyBufSize = 0;
+    }
+
+    if (mFrameRGB) {
+        av_frame_free(&mFrameRGB);
+        mFrameRGB = nullptr;
+    }
+
+    if (mAudioFrame) {
+        av_frame_free(&mAudioFrame);
+        mAudioFrame = nullptr;
+    }
+
+    if (mFrame) {
+        av_frame_free(&mFrame);
+        mFrame = nullptr;
+    }
+
+    if (mPacket) {
+        av_packet_free(&mPacket);
+        mPacket = nullptr;
+    }
+
+    if (mAudioPacket) {
+        av_packet_free(&mAudioPacket);
+        mAudioPacket = nullptr;
+    }
+
+    if (mVideoCodecCtx) {
+        avcodec_free_context(&mVideoCodecCtx);
+        mVideoCodecCtx = nullptr;
+    }
+
+    if (mAudioCodecCtx) {
+        avcodec_free_context(&mAudioCodecCtx);
+        mAudioCodecCtx = nullptr;
+    }
+
+    if (mFormatCtx) {
+        avformat_close_input(&mFormatCtx);
+        mFormatCtx = nullptr;
+    }
+
+    if (mAvioCtx) {
+        av_freep(&mAvioCtx->buffer);
+        avio_context_free(&mAvioCtx);
+        mAvioCtx = nullptr;
+    }
+
+    if (mFile) {
+        fclose(mFile);
+        mFile = nullptr;
+    }
+    mAvioBuffer = nullptr;
+    SDL_AtomicSet(&mReaderReachedEOF, 0);
+    SDL_AtomicSet(&mPlaybackArmed, 0);
+    SDL_AtomicSet(&mDecodeEpoch, 0);
+
+    mVideoStreamIndex = -1;
+    mAudioStreamIndex = -1;
+}
+
+bool VideoDecoder::Seek(double seconds) {
+    if (!mFormatCtx) {
+        return false;
+    }
+
+    if (seconds < 0.0) {
+        seconds = 0.0;
+    }
+
+    if (mDuration > 0.0 && seconds > mDuration) {
+        seconds = mDuration;
+    }
+
+    WHBLogPrintf("VideoDecoder::Seek: Seeking to %.3f seconds", seconds);
+
+    SDL_AtomicAdd(&mDecodeEpoch, kSeekEpochStep);
+
     SDL_LockMutex(mPacketMutex);
     while (!mAudioPacketQueue.empty()) {
         AVPacket* pkt = mAudioPacketQueue.front();
@@ -555,82 +708,75 @@ void VideoDecoder::Close() {
         mVideoPacketQueue.pop_front();
         av_packet_free(&pkt);
     }
+    mReadyFrameQueue.clear();
+    SDL_AtomicSet(&mReaderReachedEOF, 0);
     SDL_UnlockMutex(mPacketMutex);
-    
-    if (mSwsCtx) {
-        sws_freeContext(mSwsCtx);
-        mSwsCtx = nullptr;
-    }
-    
-    if (mSwrCtx) {
-        swr_free(&mSwrCtx);
-        mSwrCtx = nullptr;
-    }
-    
-    if (mBuffer) {
-        av_free(mBuffer);
-        mBuffer = nullptr;
-    }
-    
-    if (mAudioBuffer) {
-        av_free(mAudioBuffer);
-        mAudioBuffer = nullptr;
-        mAudioBufferSize = 0;
-        mAudioBufferIndex = 0;
-    }
-    
-    if (mFrameRGB) {
-        av_frame_free(&mFrameRGB);
-    }
-    
-    if (mAudioFrame) {
-        av_frame_free(&mAudioFrame);
-    }
-    
-    if (mFrame) {
-        av_frame_free(&mFrame);
-    }
-    
-    if (mPacket) {
-        av_packet_free(&mPacket);
-    }
-    
-    if (mAudioPacket) {
-        av_packet_free(&mAudioPacket);
-    }
-    
+
+    SDL_LockMutex(mVideoDecodeMutex);
     if (mVideoCodecCtx) {
-        avcodec_free_context(&mVideoCodecCtx);
+        avcodec_flush_buffers(mVideoCodecCtx);
     }
-    
     if (mAudioCodecCtx) {
-        avcodec_free_context(&mAudioCodecCtx);
+        avcodec_flush_buffers(mAudioCodecCtx);
     }
-    
-    if (mFormatCtx) {
-        avformat_close_input(&mFormatCtx);
+    SDL_UnlockMutex(mVideoDecodeMutex);
+
+    int64_t timestamp = (int64_t)(seconds * AV_TIME_BASE);
+    int ret = av_seek_frame(mFormatCtx, -1, timestamp, AVSEEK_FLAG_BACKWARD);
+    if (ret < 0) {
+        char errbuf[128];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        WHBLogPrintf("VideoDecoder::Seek: FAILED - %s", errbuf);
+        return false;
     }
 
-    if (mAvioCtx) {
-        av_freep(&mAvioCtx->buffer);
-        avio_context_free(&mAvioCtx);
+    SDL_LockMutex(mVideoDecodeMutex);
+    if (mVideoCodecCtx) {
+        avcodec_flush_buffers(mVideoCodecCtx);
     }
+    if (mAudioCodecCtx) {
+        avcodec_flush_buffers(mAudioCodecCtx);
+    }
+    SDL_UnlockMutex(mVideoDecodeMutex);
 
-    if (mFile) {
-        fclose(mFile);
-        mFile = nullptr;
-    }
-    mAvioBuffer = nullptr;
-    
-    mVideoStreamIndex = -1;
-    mAudioStreamIndex = -1;
+    mCurrentTime = seconds;
+    mAudioTime = seconds;
+    mAudioBufferIndex = 0;
+    mAudioBufferSize = 0;
+
+    return true;
 }
 
-bool VideoDecoder::ReadFrame(SDL_Texture* texture) {
+bool VideoDecoder::ReadFrame(SDL_Texture* texture, double targetPts) {
     if (!mFormatCtx) {
         return false;
     }
-    
+
+    if (SDL_AtomicGet(&mFrameWorkerRunning)) {
+        DecodedVideoFrame frame;
+        if (!PopReadyFrame(frame, targetPts)) {
+            SDL_LockMutex(mPacketMutex);
+            bool readerReachedEOF = SDL_AtomicGet(&mReaderReachedEOF) != 0;
+            bool queuesEmpty = mVideoPacketQueue.empty() && mAudioPacketQueue.empty() && mReadyFrameQueue.empty();
+            SDL_UnlockMutex(mPacketMutex);
+
+            if (readerReachedEOF && queuesEmpty) {
+                WHBLogPrintf("[FRAME] No more frames available");
+                return false;
+            }
+
+            return true;
+        }
+
+        mCurrentTime = frame.pts;
+        if (texture && !frame.pixels.empty()) {
+            SDL_UpdateTexture(texture, nullptr, frame.pixels.data(), frame.pitch);
+        }
+        return true;
+    }
+
+    (void)targetPts;
+
     static int frameCount = 0;
     static Uint32 lastLogTime = 0;
     static Uint32 totalDecodeTime = 0;
@@ -640,13 +786,13 @@ bool VideoDecoder::ReadFrame(SDL_Texture* texture) {
     static Uint32 totalSendPacketTime = 0;
     static Uint32 totalReceiveFrameTime = 0;
     static int framesProcessed = 0;
-    
+
     Uint32 frameStartTime = SDL_GetTicks();
     frameCount++;
-    
+
     Uint32 lockStartTime = SDL_GetTicks();
     SDL_LockMutex(mPacketMutex);
-    
+
     if (mVideoPacketQueue.empty()) {
         SDL_UnlockMutex(mPacketMutex);
         Uint32 now = SDL_GetTicks();
@@ -656,16 +802,16 @@ bool VideoDecoder::ReadFrame(SDL_Texture* texture) {
         }
         return true;
     }
-    
+
     AVPacket* pkt = mVideoPacketQueue.front();
     mVideoPacketQueue.pop_front();
     int audioQueueSize = mAudioPacketQueue.size();
     int videoQueueSize = mVideoPacketQueue.size();
-    
+
     SDL_UnlockMutex(mPacketMutex);
     Uint32 unlockEndTime = SDL_GetTicks();
     totalPacketWaitTime += (unlockEndTime - lockStartTime);
-    
+
     Uint32 sendPacketStartTime = SDL_GetTicks();
     if (avcodec_send_packet(mVideoCodecCtx, pkt) < 0) {
         av_packet_free(&pkt);
@@ -674,56 +820,51 @@ bool VideoDecoder::ReadFrame(SDL_Texture* texture) {
     }
     Uint32 sendPacketEndTime = SDL_GetTicks();
     totalSendPacketTime += (sendPacketEndTime - sendPacketStartTime);
-    
+
     Uint32 receiveFrameStartTime = SDL_GetTicks();
     int receiveResult = avcodec_receive_frame(mVideoCodecCtx, mFrame);
     Uint32 receiveFrameEndTime = SDL_GetTicks();
     totalReceiveFrameTime += (receiveFrameEndTime - receiveFrameStartTime);
-    
+
     if (receiveResult == 0) {
         if (mFrame->pts != AV_NOPTS_VALUE) {
             mCurrentTime = mFrame->pts * av_q2d(mFormatCtx->streams[mVideoStreamIndex]->time_base);
         } else {
-            // Fallback for streams without PTS (common in MJPEG AVI)
-            // Estimate time based on frame rate
             double frameRate = GetFrameRate();
             if (frameRate > 0) {
                 mCurrentTime += 1.0 / frameRate;
             }
         }
-        
+
         Uint32 decodeTime = receiveFrameEndTime - receiveFrameStartTime;
         totalDecodeTime += decodeTime;
         framesProcessed++;
-        
+
         if (texture) {
             Uint32 scaleStartTime = SDL_GetTicks();
-            
-            int result = sws_scale(mSwsCtx, 
-                                  (const uint8_t* const*)mFrame->data, 
-                                  mFrame->linesize, 
+            int result = sws_scale(mSwsCtx,
+                                  (const uint8_t* const*)mFrame->data,
+                                  mFrame->linesize,
                                   0, mHeight,
-                                  mFrameRGB->data, 
+                                  mFrameRGB->data,
                                   mFrameRGB->linesize);
-            
+
             Uint32 scaleEndTime = SDL_GetTicks();
             Uint32 scaleTime = scaleEndTime - scaleStartTime;
             totalScaleTime += scaleTime;
-            
+
             if (result > 0) {
                 Uint32 textureStartTime = SDL_GetTicks();
-                
                 SDL_UpdateTexture(texture, nullptr, mFrameRGB->data[0], mFrameRGB->linesize[0]);
-                
                 Uint32 textureEndTime = SDL_GetTicks();
                 Uint32 textureTime = textureEndTime - textureStartTime;
                 totalTextureTime += textureTime;
             }
         }
-        
+
         Uint32 frameEndTime = SDL_GetTicks();
         Uint32 totalFrameTime = frameEndTime - frameStartTime;
-        
+
         Uint32 now = SDL_GetTicks();
         if ((now - lastLogTime) > 2000) {
             double avgDecode = framesProcessed > 0 ? (double)totalDecodeTime / framesProcessed : 0;
@@ -733,19 +874,19 @@ bool VideoDecoder::ReadFrame(SDL_Texture* texture) {
             double avgSendPacket = framesProcessed > 0 ? (double)totalSendPacketTime / framesProcessed : 0;
             double avgReceiveFrame = framesProcessed > 0 ? (double)totalReceiveFrameTime / framesProcessed : 0;
             double avDrift = mCurrentTime - mAudioTime;
-            double fps = framesProcessed / 2.0;  // Frames in 2 seconds
-            
-            WHBLogPrintf("[VIDEO] Frame #%d vPTS=%.2f aPTS=%.2f drift=%.0fms vQ=%d aQ=%d FPS=%.1f", 
+            double fps = framesProcessed / 2.0;
+
+            WHBLogPrintf("[VIDEO] Frame #%d vPTS=%.2f aPTS=%.2f drift=%.0fms vQ=%d aQ=%d FPS=%.1f",
                          frameCount, mCurrentTime, mAudioTime, avDrift * 1000.0, videoQueueSize, audioQueueSize, fps);
-            WHBLogPrintf("[VIDEO] Timing: total=%ums pktWait=%.1fms sendPkt=%.1fms recvFrame=%.1fms", 
+            WHBLogPrintf("[VIDEO] Timing: total=%ums pktWait=%.1fms sendPkt=%.1fms recvFrame=%.1fms",
                          totalFrameTime, avgPacketWait, avgSendPacket, avgReceiveFrame);
-            WHBLogPrintf("[VIDEO] Timing: decode=%.1fms scale=%.1fms texture=%.1fms", 
+            WHBLogPrintf("[VIDEO] Timing: decode=%.1fms scale=%.1fms texture=%.1fms",
                          avgDecode, avgScale, avgTexture);
-            WHBLogPrintf("[VIDEO] Codec: %s (%dx%d) PixFmt: %s", 
+            WHBLogPrintf("[VIDEO] Codec: %s (%dx%d) PixFmt: %s",
                          avcodec_get_name(mVideoCodecCtx->codec_id),
                          mWidth, mHeight,
                          av_get_pix_fmt_name(mVideoCodecCtx->pix_fmt));
-            
+
             lastLogTime = now;
             totalDecodeTime = 0;
             totalScaleTime = 0;
@@ -759,61 +900,277 @@ bool VideoDecoder::ReadFrame(SDL_Texture* texture) {
     } else {
         WHBLogPrintf("[VIDEO] ERROR - avcodec_receive_frame returned %d", receiveResult);
     }
-    
+
     av_packet_free(&pkt);
     return true;
 }
 
-bool VideoDecoder::Seek(double seconds) {
-    if (!mFormatCtx) {
-        return false;
-    }
-    
+bool VideoDecoder::HasReadyFrame() const {
     SDL_LockMutex(mPacketMutex);
-    
-    while (!mAudioPacketQueue.empty()) {
-        AVPacket* pkt = mAudioPacketQueue.front();
-        mAudioPacketQueue.pop_front();
-        av_packet_free(&pkt);
+    bool ready = !mReadyFrameQueue.empty();
+    SDL_UnlockMutex(mPacketMutex);
+    return ready;
+}
+
+bool VideoDecoder::PopReadyFrame(DecodedVideoFrame& frame, double targetPts) {
+    SDL_LockMutex(mPacketMutex);
+    int currentEpoch = SDL_AtomicGet(&mDecodeEpoch);
+
+    // Discard stale frames first
+    while (!mReadyFrameQueue.empty() && mReadyFrameQueue.front().epoch != currentEpoch) {
+        mReadyFrameQueue.pop_front();
     }
-    while (!mVideoPacketQueue.empty()) {
-        AVPacket* pkt = mVideoPacketQueue.front();
-        mVideoPacketQueue.pop_front();
-        av_packet_free(&pkt);
+
+    if (!mReadyFrameQueue.empty()) {
+        if (targetPts >= 0.0) {
+            double best = 1e9;
+            double newestPts = -1.0;
+            size_t bestIdx = 0;
+            size_t newestIdx = 0;
+            size_t n = mReadyFrameQueue.size();
+            bool anyDue = false;
+            for (size_t i = 0; i < n; ++i) {
+                if (mReadyFrameQueue[i].epoch != currentEpoch) {
+                    continue;
+                }
+                if (mReadyFrameQueue[i].pts > newestPts) {
+                    newestPts = mReadyFrameQueue[i].pts;
+                    newestIdx = i;
+                }
+                if (mReadyFrameQueue[i].pts > targetPts) {
+                    continue;
+                }
+                anyDue = true;
+                double d = targetPts - mReadyFrameQueue[i].pts;
+                if (d < best) {
+                    best = d;
+                    bestIdx = i;
+                }
+            }
+
+            if (!anyDue) {
+                if (newestPts >= 0.0) {
+                    // All frames ahead of the clock: hold until due.
+                    SDL_UnlockMutex(mPacketMutex);
+                    return false;
+                }
+
+                if (mReadyFrameQueue.front().epoch != currentEpoch) {
+                    SDL_UnlockMutex(mPacketMutex);
+                    return false;
+                }
+                bestIdx = 0;
+            }
+
+            // Drop everything older than the best frame so the queue stays
+            // ordered for the next call.
+            for (size_t i = 0; i < bestIdx; ++i) {
+                mReadyFrameQueue.pop_front();
+            }
+        }
+
+        if (mReadyFrameQueue.front().epoch == currentEpoch) {
+            frame = std::move(mReadyFrameQueue.front());
+            mReadyFrameQueue.pop_front();
+            SDL_UnlockMutex(mPacketMutex);
+            return true;
+        }
     }
-    
-    int streamIndex = (mVideoStreamIndex >= 0) ? mVideoStreamIndex : mAudioStreamIndex;
-    if (streamIndex < 0) {
+
+    SDL_UnlockMutex(mPacketMutex);
+    return false;
+}
+
+bool VideoDecoder::QueueReadyFrame(DecodedVideoFrame&& frame) {
+    SDL_LockMutex(mPacketMutex);
+
+    if (frame.epoch != SDL_AtomicGet(&mDecodeEpoch)) {
         SDL_UnlockMutex(mPacketMutex);
         return false;
     }
-    
-    int64_t timestamp = (int64_t)(seconds / av_q2d(mFormatCtx->streams[streamIndex]->time_base));
-    
-    if (av_seek_frame(mFormatCtx, streamIndex, timestamp, AVSEEK_FLAG_BACKWARD) < 0) {
+
+    if (mReadyFrameQueue.size() >= kMaxReadyFrames) {
         SDL_UnlockMutex(mPacketMutex);
+        SDL_Delay(kReadyQueueBackpressureDelayMs);
         return false;
     }
-    
-    if (mVideoCodecCtx) {
-        avcodec_flush_buffers(mVideoCodecCtx);
-    }
-    if (mAudioCodecCtx) {
-        avcodec_flush_buffers(mAudioCodecCtx);
-    }
-    
-    mAudioBufferIndex = 0;
-    mAudioBufferSize = 0;
-    
-    mCurrentTime = seconds;
-    
+
+    mReadyFrameQueue.push_back(std::move(frame));
     SDL_UnlockMutex(mPacketMutex);
     return true;
 }
 
+void VideoDecoder::ClearReadyFrames() {
+    SDL_LockMutex(mPacketMutex);
+    mReadyFrameQueue.clear();
+    SDL_UnlockMutex(mPacketMutex);
+}
+
+int VideoDecoder::FrameWorkerThreadFunc(void* data) {
+    VideoDecoder* decoder = static_cast<VideoDecoder*>(data);
+    decoder->FrameWorkerLoop();
+    return 0;
+}
+
+void VideoDecoder::FrameWorkerLoop() {
+    WHBLogPrintf("[FRAME] Thread started");
+
+    int workerEpoch = SDL_AtomicGet(&mDecodeEpoch);
+
+    while (SDL_AtomicGet(&mFrameWorkerRunning)) {
+        if (!SDL_AtomicGet(&mPlaybackArmed)) {
+            SDL_Delay(kFrameWorkerIdleDelayMs);
+            continue;
+        }
+
+        int currentEpoch = SDL_AtomicGet(&mDecodeEpoch);
+        if (currentEpoch != workerEpoch) {
+            workerEpoch = currentEpoch;
+            SDL_LockMutex(mVideoDecodeMutex);
+            if (mVideoCodecCtx) {
+                avcodec_flush_buffers(mVideoCodecCtx);
+            }
+            SDL_UnlockMutex(mVideoDecodeMutex);
+            ClearReadyFrames();
+        }
+
+        AVPacket* pkt = nullptr;
+        bool readerReachedEOF = false;
+
+        SDL_LockMutex(mPacketMutex);
+        if (!mVideoPacketQueue.empty()) {
+            pkt = mVideoPacketQueue.front();
+            mVideoPacketQueue.pop_front();
+            if (pkt->stream_index != mVideoStreamIndex) {
+                av_packet_free(&pkt);
+                SDL_UnlockMutex(mPacketMutex);
+                continue;
+            }
+        } else {
+            readerReachedEOF = SDL_AtomicGet(&mReaderReachedEOF) != 0;
+        }
+        SDL_UnlockMutex(mPacketMutex);
+
+        if (!pkt) {
+            SDL_Delay(readerReachedEOF ? kReaderIdleDelayMs : kFrameWorkerIdleDelayMs);
+            continue;
+        }
+
+        if (mAudioStreamIndex >= 0) {
+            while (SDL_AtomicGet(&mFrameWorkerRunning) &&
+                   workerEpoch == SDL_AtomicGet(&mDecodeEpoch)) {
+                double readyPts;
+                SDL_LockMutex(mPacketMutex);
+                readyPts = mReadyFrameQueue.empty()
+                               ? -1.0
+                               : mReadyFrameQueue.back().pts;
+                SDL_UnlockMutex(mPacketMutex);
+
+                if (readyPts < 0.0) {
+                    break;
+                }
+                double ahead = readyPts - mAudioTime;
+                if (ahead <= kDecodeAheadSeconds) {
+                    break;
+                }
+                SDL_Delay(kFrameWorkerIdleDelayMs);
+            }
+            if (workerEpoch != SDL_AtomicGet(&mDecodeEpoch)) {
+                continue;
+            }
+        }
+
+        SDL_LockMutex(mVideoDecodeMutex);
+
+        int sendResult = avcodec_send_packet(mVideoCodecCtx, pkt);
+        av_packet_free(&pkt);
+        if (sendResult < 0) {
+            SDL_UnlockMutex(mVideoDecodeMutex);
+            continue;
+        }
+
+        while (SDL_AtomicGet(&mFrameWorkerRunning) && workerEpoch == SDL_AtomicGet(&mDecodeEpoch)) {
+            int receiveResult = avcodec_receive_frame(mVideoCodecCtx, mFrame);
+            if (receiveResult == AVERROR(EAGAIN) || receiveResult == AVERROR_EOF) {
+                break;
+            }
+            if (receiveResult < 0) {
+                WHBLogPrintf("[FRAME] avcodec_receive_frame returned %d", receiveResult);
+                break;
+            }
+
+            double pts = mCurrentTime;
+            if (mFrame->pts != AV_NOPTS_VALUE) {
+                pts = mFrame->pts * av_q2d(mFormatCtx->streams[mVideoStreamIndex]->time_base);
+            } else {
+                double frameRate = GetFrameRate();
+                if (frameRate > 0) {
+                    pts += 1.0 / frameRate;
+                }
+            }
+
+            if (mSwsCtx) {
+                size_t numBytes = (size_t)av_image_get_buffer_size(
+                    AV_PIX_FMT_RGBA, mWidth, mHeight, 1);
+                if (numBytes > mReadyBufSize) {
+                    if (mReadyBuf) {
+                        av_free(mReadyBuf);
+                    }
+                    mReadyBuf = (uint8_t*)av_malloc(numBytes);
+                    mReadyBufSize = mReadyBuf ? numBytes : 0;
+                }
+                if (mReadyBuf && mFrameRGB) {
+                    av_image_fill_arrays(mFrameRGB->data, mFrameRGB->linesize, mReadyBuf,
+                                         AV_PIX_FMT_RGBA, mWidth, mHeight, 1);
+
+                    int scaled = sws_scale(mSwsCtx,
+                                          (const uint8_t* const*)mFrame->data,
+                                          mFrame->linesize,
+                                          0,
+                                          mHeight,
+                                          mFrameRGB->data,
+                                          mFrameRGB->linesize);
+
+                    if (scaled > 0) {
+                        DecodedVideoFrame readyFrame;
+                        readyFrame.pitch = mFrameRGB->linesize[0];
+                        readyFrame.pts = pts;
+                        readyFrame.epoch = workerEpoch;
+                        readyFrame.pixels.resize((size_t)readyFrame.pitch * (size_t)mHeight);
+                        SDL_memcpy(readyFrame.pixels.data(), mFrameRGB->data[0], readyFrame.pixels.size());
+
+                        while (SDL_AtomicGet(&mFrameWorkerRunning) &&
+                               workerEpoch == SDL_AtomicGet(&mDecodeEpoch)) {
+                            bool slotFree;
+                            SDL_LockMutex(mPacketMutex);
+                            slotFree = mReadyFrameQueue.size() < kMaxReadyFrames;
+                            SDL_UnlockMutex(mPacketMutex);
+                            if (slotFree) {
+                                break;
+                            }
+                            SDL_UnlockMutex(mVideoDecodeMutex);
+                            SDL_Delay(kReadyQueueBackpressureDelayMs);
+                            SDL_LockMutex(mVideoDecodeMutex);
+                        }
+                        if (workerEpoch == SDL_AtomicGet(&mDecodeEpoch)) {
+                            QueueReadyFrame(std::move(readyFrame));
+                        }
+                    }
+                }
+            }
+
+            av_frame_unref(mFrame);
+        }
+
+        SDL_UnlockMutex(mVideoDecodeMutex);
+    }
+
+    WHBLogPrintf("[FRAME] Thread stopped");
+}
+
 double VideoDecoder::GetFrameRate() const {
     if (!mFormatCtx || mVideoStreamIndex < 0) {
-        return 30.0; // Default fallback
+        return 30.0;
     }
     
     AVStream* stream = mFormatCtx->streams[mVideoStreamIndex];
@@ -1069,6 +1426,10 @@ void VideoDecoder::PauseAudio(bool pause) {
     }
 }
 
+void VideoDecoder::SetPlaybackArmed(bool armed) {
+    SDL_AtomicSet(&mPlaybackArmed, armed ? 1 : 0);
+}
+
 int VideoDecoder::PacketReaderThreadFunc(void* data) {
     VideoDecoder* decoder = static_cast<VideoDecoder*>(data);
     decoder->PacketReaderLoop();
@@ -1086,6 +1447,7 @@ void VideoDecoder::PacketReaderLoop() {
     
     int videoPacketsRead = 0;
     int audioPacketsRead = 0;
+    int videoPacketsDropped = 0;
     Uint32 lastLogTime = SDL_GetTicks();
     Uint32 totalReadTime = 0;
     Uint32 totalWaitTime = 0;
@@ -1101,7 +1463,7 @@ void VideoDecoder::PacketReaderLoop() {
         if (videoQueueSize > 30 && audioQueueSize > 30) {
             SDL_UnlockMutex(mPacketMutex);
             Uint32 waitStartTime = SDL_GetTicks();
-            SDL_Delay(10);  // Wait a bit before checking again
+            SDL_Delay(10);
             Uint32 waitEndTime = SDL_GetTicks();
             totalWaitTime += (waitEndTime - waitStartTime);
             waitsPerformed++;
@@ -1113,6 +1475,9 @@ void VideoDecoder::PacketReaderLoop() {
         Uint32 readEndTime = SDL_GetTicks();
         
         if (ret < 0) {
+            if (ret == AVERROR_EOF) {
+                SDL_AtomicSet(&mReaderReachedEOF, 1);
+            }
             SDL_UnlockMutex(mPacketMutex);
             if (ret == AVERROR_EOF) {
                 WHBLogPrintf("[READER] EOF (v=%d a=%d) - waiting for seek or stop", videoPacketsRead, audioPacketsRead);
@@ -1129,17 +1494,24 @@ void VideoDecoder::PacketReaderLoop() {
         totalReadTime += (readEndTime - readStartTime);
         readsPerformed++;
         
-        // Queue the packet
         if (pkt->stream_index == mVideoStreamIndex) {
             AVPacket* videoPkt = av_packet_alloc();
-            av_packet_ref(videoPkt, pkt);
-            mVideoPacketQueue.push_back(videoPkt);
-            videoPacketsRead++;
+            if (videoPkt && av_packet_ref(videoPkt, pkt) == 0) {
+                mVideoPacketQueue.push_back(videoPkt);
+                videoPacketsRead++;
+            } else {
+                WHBLogPrintf("[READER] WARNING - Failed to queue video packet");
+                av_packet_free(&videoPkt);
+            }
         } else if (pkt->stream_index == mAudioStreamIndex) {
             AVPacket* audioPkt = av_packet_alloc();
-            av_packet_ref(audioPkt, pkt);
-            mAudioPacketQueue.push_back(audioPkt);
-            audioPacketsRead++;
+            if (audioPkt && av_packet_ref(audioPkt, pkt) == 0) {
+                mAudioPacketQueue.push_back(audioPkt);
+                audioPacketsRead++;
+            } else {
+                WHBLogPrintf("[READER] WARNING - Failed to queue audio packet");
+                av_packet_free(&audioPkt);
+            }
         }
         
         av_packet_unref(pkt);
@@ -1150,14 +1522,15 @@ void VideoDecoder::PacketReaderLoop() {
             double avgRead = readsPerformed > 0 ? (double)totalReadTime / readsPerformed : 0;
             double avgWait = waitsPerformed > 0 ? (double)totalWaitTime / waitsPerformed : 0;
             
-            WHBLogPrintf("[READER] Read v=%d a=%d (Q: v=%d a=%d)", 
-                         videoPacketsRead, audioPacketsRead, videoQueueSize, audioQueueSize);
+            WHBLogPrintf("[READER] Read v=%d a=%d dropped=%d (Q: v=%d a=%d)",
+                         videoPacketsRead, audioPacketsRead, videoPacketsDropped, videoQueueSize, audioQueueSize);
             WHBLogPrintf("[READER] Timing: avgRead=%.1fms avgWait=%.1fms waits=%d", 
                          avgRead, avgWait, waitsPerformed);
             
             lastLogTime = now;
             videoPacketsRead = 0;
             audioPacketsRead = 0;
+            videoPacketsDropped = 0;
             totalReadTime = 0;
             totalWaitTime = 0;
             readsPerformed = 0;
