@@ -191,7 +191,7 @@ bool VideoPlayerScreen::Update(Input &input) {
         if (newTime < 0) newTime = 0;
         mDecoder.SetPlaybackArmed(false);
         mDecoder.Seek(newTime);
-        mWallClockStartTime = 0; // Reset wall-clock sync after seek (fixes AVI seek freezing)
+        mWallClockStartTime = 0; // Reset to wall-clock sync until audio stabilizes after seek
         mPlaybackStartTime = SDL_GetTicks();
         mPlaybackStartPTS = mDecoder.GetCurrentTime();
         mLastFrameTime = 0;
@@ -209,7 +209,7 @@ bool VideoPlayerScreen::Update(Input &input) {
         if (newTime > mDecoder.GetDuration()) newTime = mDecoder.GetDuration();
         mDecoder.SetPlaybackArmed(false);
         mDecoder.Seek(newTime);
-        mWallClockStartTime = 0; // Reset wall-clock sync after seek (fixes AVI seek freezing)
+        mWallClockStartTime = 0; // Reset to wall-clock sync until audio stabilizes after seek
         mPlaybackStartTime = SDL_GetTicks();
         mPlaybackStartPTS = mDecoder.GetCurrentTime();
         mLastFrameTime = 0;
@@ -297,6 +297,7 @@ void VideoPlayerScreen::CalculateDisplayRect(SDL_Rect& rect) {
 void VideoPlayerScreen::UpdatePlayback() {
     static Uint32 lastLogTime = 0;
     static int framesDecoded = 0;
+    const double maxLead = 2.0;
     static Uint32 totalFrameTime = 0;
     static int frameTimings = 0;
     static int framesSkipped = 0;
@@ -318,7 +319,7 @@ void VideoPlayerScreen::UpdatePlayback() {
         return;
     }
 
-    if (!mDecoder.HasAudio()) {
+    if (!mDecoder.HasAudio() || mWallClockStartTime == 0) {
         if (mWallClockStartTime == 0) {
             mWallClockStartTime = currentTime;
             mWallClockStartPTS = mPlaybackStartPTS;
@@ -327,6 +328,16 @@ void VideoPlayerScreen::UpdatePlayback() {
         double elapsedWallTime = (currentTime - mWallClockStartTime) / 1000.0;
         targetPts = mWallClockStartPTS + elapsedWallTime;
         avDrift = videoPTS - targetPts;
+
+        if (mDecoder.HasAudio() && mWallClockStartTime != 0) {
+            double audioCatchup = audioPTS - mPlaybackStartPTS;
+            if (audioCatchup > -0.15) {
+                mPlaybackStartAudioPTS = audioPTS;
+                mPlaybackStartPTS = videoPTS;
+                mPlaybackStartTime = currentTime;
+                mWallClockStartTime = 1;
+            }
+        }
 
         shouldDecode = (timeSinceLastFrame == 0) || (timeSinceLastFrame >= (Uint32)mFrameDelay);
     } else {
