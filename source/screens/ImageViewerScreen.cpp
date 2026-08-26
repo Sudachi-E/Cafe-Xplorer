@@ -67,7 +67,7 @@ void ImageViewerScreen::Draw() {
     }
     
     if (mLoadError) {
-        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 48,
+        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 30,
                    Gfx::COLOR_WHITE, "Failed to load image", Gfx::ALIGN_CENTER);
         return;
     }

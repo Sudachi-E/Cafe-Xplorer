@@ -53,10 +53,10 @@ void VideoPlayerScreen::Draw() {
         int centerX = Gfx::SCREEN_WIDTH / 2;
         int centerY = Gfx::SCREEN_HEIGHT / 2;
         
-        Gfx::Print(centerX, centerY - 30, 48, Gfx::COLOR_WHITE, 
+        Gfx::Print(centerX, centerY - 30, 30, Gfx::COLOR_WHITE,
                    "Raw Video Not Supported", Gfx::ALIGN_CENTER);
         
-        Gfx::Print(centerX, centerY + 40, 32, Gfx::COLOR_ALT_TEXT,
+        Gfx::Print(centerX, centerY + 40, 24, Gfx::COLOR_ALT_TEXT,
                    "Press B to go back", Gfx::ALIGN_CENTER);
         
         return;
@@ -94,7 +94,7 @@ void VideoPlayerScreen::Draw() {
             snprintf(errorMsg, sizeof(errorMsg), "Unknown error");
         }
         
-        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 48,
+        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 30,
                    Gfx::COLOR_WHITE, "Failed to load video", Gfx::ALIGN_CENTER);
         Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 + 60, 28,
                    Gfx::COLOR_ALT_TEXT, errorMsg, Gfx::ALIGN_CENTER);
@@ -102,7 +102,7 @@ void VideoPlayerScreen::Draw() {
     }
     
     if (!mVideoTexture) {
-        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 48,
+        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 30,
                    Gfx::COLOR_WHITE, "Loading video...", Gfx::ALIGN_CENTER);
         return;
     }
@@ -249,7 +249,7 @@ void VideoPlayerScreen::DrawPlaybackControls() {
     char timeStr[64];
     snprintf(timeStr, sizeof(timeStr), "%.1f / %.1f s",
              displayTime, mDecoder.GetDuration());
-    Gfx::Print(Gfx::SCREEN_WIDTH - 40, Gfx::SCREEN_HEIGHT - 100, 36,
+    Gfx::Print(Gfx::SCREEN_WIDTH - 40, Gfx::SCREEN_HEIGHT - 100, 26,
                Gfx::COLOR_WHITE, timeStr, Gfx::ALIGN_RIGHT);
 
     int barWidth = Gfx::SCREEN_WIDTH - 80;
@@ -502,15 +502,37 @@ void VideoPlayerScreen::InitializeVideo() {
         return;
     }
     
-    SDL_SetRenderTarget(Gfx::GetRenderer(), mVideoTexture);
-    SDL_SetRenderDrawColor(Gfx::GetRenderer(), 0, 0, 0, 255);
-    SDL_RenderClear(Gfx::GetRenderer());
-    SDL_SetRenderTarget(Gfx::GetRenderer(), nullptr);
+    // Clear the streaming texture to black using lock/unlock (SetRenderTarget
+    // does not work on SDL_TEXTUREACCESS_STREAMING textures and silently fails,
+    // which would leave the texture with uninitialized/stale GPU memory).
+    {
+        void* pixels = nullptr;
+        int pitch = 0;
+        if (SDL_LockTexture(mVideoTexture, nullptr, &pixels, &pitch) == 0) {
+            memset(pixels, 0, (size_t)pitch * mVideoHeight);
+            SDL_UnlockTexture(mVideoTexture);
+        }
+    }
     
     double fps = mDecoder.GetFrameRate();
     mFrameDelay = 1000.0 / fps;
-    
-    mDecoder.SetPlaybackArmed(false);
+
+    // Auto-play on open
+    mIsPlaying = true;
+    mIsPaused = false;
+    mShowTopBar = false;
+    mShowUI = false;
+    mShowSeekbar = true;
+    mUIHideTime = SDL_GetTicks() + 5000;
+    mPlaybackStartTime = SDL_GetTicks();
+    mPlaybackStartPTS = mDecoder.GetCurrentTime();
+    mLastFrameTime = 0;
+    mDecoder.SetPlaybackArmed(true);
+    mDecoder.StartAudio();
+    mPlaybackStartAudioPTS = mDecoder.GetAudioTime();
+    const char* syncMode = mDecoder.HasAudio() ? "A-V" : "WALL-CLOCK";
+    WHBLogPrintf("[SYNC] AUTO-PLAY (%s) vPTS=%.2f aPTS=%.2f", syncMode,
+                 mDecoder.GetCurrentTime(), mPlaybackStartAudioPTS);
 
     Uint32 initEnd = SDL_GetTicks();
     WHBLogPrintf("[PERF] InitializeVideo: Total initialization took %u ms (FPS=%.2f, delay=%.2fms)",

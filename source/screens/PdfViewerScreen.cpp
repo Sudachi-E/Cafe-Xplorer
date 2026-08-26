@@ -261,16 +261,16 @@ void PdfViewerScreen::Draw()
     }
 
     if (mLoadError) {
-        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 - 40, 48,
+        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 - 40, 30,
                    Gfx::COLOR_WHITE, "Failed to load PDF", Gfx::ALIGN_CENTER);
         if (!mErrorMessage.empty())
-            Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 + 20, 32,
+            Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 + 20, 24,
                        Gfx::COLOR_ALT_TEXT, mErrorMessage.c_str(), Gfx::ALIGN_CENTER);
         return;
     }
 
     if (!mTexture) {
-        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 40,
+        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 28,
                    Gfx::COLOR_ALT_TEXT, "Rendering...", Gfx::ALIGN_CENTER);
         return;
     }
@@ -299,7 +299,7 @@ void PdfViewerScreen::Draw()
     } else {
         snprintf(info, sizeof(info), "%.0f%%", mZoom * 100.0f);
     }
-    Gfx::Print(Gfx::SCREEN_WIDTH - 40, 40, 32,
+    Gfx::Print(Gfx::SCREEN_WIDTH - 40, 40, 26,
                Gfx::COLOR_TEXT, info, Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
 }
 

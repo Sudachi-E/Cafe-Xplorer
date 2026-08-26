@@ -128,7 +128,7 @@ void Screen::DrawTopBar(const char *title) {
     Gfx::DrawRectFilled(0, 77, Gfx::SCREEN_WIDTH, 3, Gfx::COLOR_ACCENT);
 
     if (title) {
-        Gfx::Print(40, 40, 48, Gfx::COLOR_TEXT, title, Gfx::ALIGN_LEFT | Gfx::ALIGN_VERTICAL);
+        Gfx::Print(40, 40, 35, Gfx::COLOR_TEXT, title, Gfx::ALIGN_LEFT | Gfx::ALIGN_VERTICAL);
     }
 }
 

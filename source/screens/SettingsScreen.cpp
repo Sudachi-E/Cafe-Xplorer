@@ -83,11 +83,11 @@ void SettingsScreen::Draw() {
         Gfx::DrawRectFilled(modalX, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED);
         Gfx::DrawRectFilled(modalX + modalWidth - borderWidth, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED);
 
-        Gfx::Print(modalX + modalWidth / 2, modalY + 50, 42, Gfx::COLOR_WHITE,
+        Gfx::Print(modalX + modalWidth / 2, modalY + 50, 28, Gfx::COLOR_WHITE,
                    "FTP Server Running", Gfx::ALIGN_CENTER);
 
         std::string ipText = "IP: " + mFtpResultIP + " : Port: " + std::to_string(FtpServer::GetPort());
-        Gfx::Print(modalX + modalWidth / 2, modalY + 120, 48, Gfx::COLOR_WHITE,
+        Gfx::Print(modalX + modalWidth / 2, modalY + 120, 30, Gfx::COLOR_WHITE,
                    ipText, Gfx::ALIGN_CENTER);
 
         int buttonY = modalY + 210;
@@ -101,24 +101,23 @@ void SettingsScreen::Draw() {
         SDL_Color stopColor = (mFtpModalOption == 1) ? Gfx::COLOR_HIGHLIGHTED : Gfx::COLOR_BARS;
 
         Gfx::DrawRectFilled(bgX, buttonY, buttonWidth, buttonHeight, bgColor);
-        Gfx::Print(bgX + buttonWidth / 2, buttonY + buttonHeight / 2 + 5, 36,
+        Gfx::Print(bgX + buttonWidth / 2, buttonY + buttonHeight / 2 + 5, 26,
                    Gfx::COLOR_WHITE, "Background (A)", Gfx::ALIGN_CENTER);
 
         Gfx::DrawRectFilled(stopX, buttonY, buttonWidth, buttonHeight, stopColor);
-        Gfx::Print(stopX + buttonWidth / 2, buttonY + buttonHeight / 2 + 5, 36,
+        Gfx::Print(stopX + buttonWidth / 2, buttonY + buttonHeight / 2 + 5, 26,
                    Gfx::COLOR_WHITE, "Stop (B)", Gfx::ALIGN_CENTER);
 
-        Gfx::Print(modalX + modalWidth / 2, modalY + modalHeight - 30, 24, Gfx::COLOR_WHITE,
+        Gfx::Print(modalX + modalWidth / 2, modalY + modalHeight - 30, 20, Gfx::COLOR_WHITE,
                    "A: Confirm", Gfx::ALIGN_CENTER);
         return;
     }
 
     DrawTopBar("Settings");
-    Gfx::Print(Gfx::SCREEN_WIDTH - 40, 40, 32, Gfx::COLOR_TEXT, "v2.0(Pre-release)", Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
-    Gfx::Print(Gfx::SCREEN_WIDTH / 2, 40, 48, Gfx::COLOR_TEXT, "Cafe-Xplorer", Gfx::ALIGN_CENTER);
+    Gfx::Print(Gfx::SCREEN_WIDTH - 40, 40, 26, Gfx::COLOR_TEXT, "v2.0", Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
+    Gfx::Print(Gfx::SCREEN_WIDTH / 2, 40, 26, Gfx::COLOR_TEXT, "Cafe-Xplorer", Gfx::ALIGN_CENTER);
 
     int yPos = 150;
-    Gfx::Print(640, 100, 32, Gfx::COLOR_TEXT, "Settings", Gfx::ALIGN_CENTER);
 
     SDL_Color opt0Color = (mSelectedOption == 0) ? Gfx::COLOR_HIGHLIGHTED : Gfx::COLOR_TEXT;
     std::string cb0 = mFullFilesystemAccess ? "[X]" : "[ ]";

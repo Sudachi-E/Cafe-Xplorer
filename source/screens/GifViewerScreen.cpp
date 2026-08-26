@@ -98,7 +98,7 @@ void GifViewerScreen::Draw() {
     }
 
     if (mLoadError) {
-        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 48,
+        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 30,
                    Gfx::COLOR_WHITE, "Failed to load GIF", Gfx::ALIGN_CENTER);
         return;
     }

@@ -64,13 +64,13 @@ void AudioPlayerScreen::Draw() {
     }
 
     if (mLoadError) {
-        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 - 100, 48,
+        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 - 100, 30,
                    Gfx::COLOR_WHITE, "Failed to load audio", Gfx::ALIGN_CENTER);
         if (!mErrorMessage.empty()) {
-            Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 - 40, 32,
+            Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 - 40, 24,
                        Gfx::COLOR_ALT_TEXT, mErrorMessage.c_str(), Gfx::ALIGN_CENTER);
         }
-        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 + 80, 24,
+        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 + 80, 20,
                    Gfx::COLOR_ALT_TEXT, mAudioPath.c_str(), Gfx::ALIGN_CENTER);
         return;
     }
@@ -193,7 +193,7 @@ void AudioPlayerScreen::DrawPlaybackControls() {
     const char* statusText = "Not Playing";
     if (mIsPlaying) statusText = mIsPaused ? "Paused" : "Playing";
 
-    Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 + 100, 48,
+    Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 + 100, 30,
                Gfx::COLOR_WHITE, statusText, Gfx::ALIGN_CENTER);
 
     double currentTime = 0.0;
@@ -205,7 +205,7 @@ void AudioPlayerScreen::DrawPlaybackControls() {
 
     char timeStr[64];
     snprintf(timeStr, sizeof(timeStr), "%.1f / %.1f s", currentTime, mDuration);
-    Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 + 160, 36,
+    Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 + 160, 26,
                Gfx::COLOR_WHITE, timeStr, Gfx::ALIGN_CENTER);
 
     // Progress bar
@@ -226,7 +226,7 @@ void AudioPlayerScreen::DrawPlaybackControls() {
     }
 
     if (!mIsPlaying) {
-        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 + 220, 40,
+        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 + 220, 26,
                    Gfx::COLOR_ALT_TEXT, "Press A to Play", Gfx::ALIGN_CENTER);
     }
 }

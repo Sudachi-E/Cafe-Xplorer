@@ -85,7 +85,7 @@ void FileManagerScreen::Draw() {
     if (mSelectionMode) {
         std::ostringstream sel;
         sel << "Selected: " << mSelectedIndices.size() << " / " << mFileManager.GetEntries().size();
-        Gfx::Print(Gfx::SCREEN_WIDTH - 40, 40, 32,
+        Gfx::Print(Gfx::SCREEN_WIDTH - 40, 40, 26,
                    Gfx::COLOR_TEXT, sel.str(), Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
     }
     
@@ -101,7 +101,7 @@ void FileManagerScreen::Draw() {
     
     if (entries.empty()) {
         Gfx::DrawRectFilled(Gfx::SCREEN_WIDTH / 2 - 200, Gfx::SCREEN_HEIGHT / 2 - 50, 400, 100, Gfx::COLOR_ALT_BACKGROUND);
-        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 48, 
+        Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 28,
                    Gfx::COLOR_ALT_TEXT, "Empty directory", Gfx::ALIGN_CENTER);
     } else {
         int y = 80;
@@ -142,10 +142,10 @@ void FileManagerScreen::Draw() {
             }
 
             SDL_Color nameColor = isSelected ? Gfx::COLOR_WHITE : (entry.isHidden ? Gfx::COLOR_HIDDEN : Gfx::COLOR_TEXT);
-            Gfx::Print(textX, y + 20, 36, nameColor, entry.displayName, Gfx::ALIGN_LEFT | Gfx::ALIGN_VERTICAL);
+            Gfx::Print(textX, y + 20, 28, nameColor, entry.displayName, Gfx::ALIGN_LEFT | Gfx::ALIGN_VERTICAL);
 
             if (!entry.isDirectory) {
-                Gfx::Print(Gfx::SCREEN_WIDTH - 60, y + 20, 32,
+                Gfx::Print(Gfx::SCREEN_WIDTH - 60, y + 20, 26,
                            isSelected ? Gfx::COLOR_WHITE : (entry.isHidden ? Gfx::COLOR_HIDDEN : Gfx::COLOR_WHITE),
                            entry.sizeText, Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
             }
@@ -736,7 +736,7 @@ void FileManagerScreen::DrawContextMenu() {
     Gfx::DrawRectFilled(menuX + menuWidth - borderWidth, menuY, borderWidth, menuHeight, Gfx::COLOR_HIGHLIGHTED);
     
     if (mSelectionMode) {
-        Gfx::Print(menuX + menuWidth / 2, menuY + 15, 32,
+        Gfx::Print(menuX + menuWidth / 2, menuY + 15, 26,
                    Gfx::COLOR_WHITE, "Selection", Gfx::ALIGN_CENTER);
         
         int optionY = menuY + 50;
@@ -748,13 +748,13 @@ void FileManagerScreen::DrawContextMenu() {
             if (selected) {
                 Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
             }
-            Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40,
+            Gfx::Print(menuX + menuWidth / 2, optionY + 20, 28,
                        selected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT,
                        items[i], Gfx::ALIGN_CENTER);
             optionY += optionSpacing;
         }
     } else {
-        Gfx::Print(menuX + menuWidth / 2, menuY + 15, 32,
+        Gfx::Print(menuX + menuWidth / 2, menuY + 15, 26,
                    Gfx::COLOR_WHITE, "Menu", Gfx::ALIGN_CENTER);
         
         int optionY = menuY + 50;
@@ -764,7 +764,7 @@ void FileManagerScreen::DrawContextMenu() {
         if (newFileSelected) {
             Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
         }
-        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40,
+        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 28,
                    newFileSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT,
                    "New File", Gfx::ALIGN_CENTER);
         
@@ -773,7 +773,7 @@ void FileManagerScreen::DrawContextMenu() {
         if (newFolderSelected) {
             Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
         }
-        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40,
+        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 28,
                    newFolderSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT,
                    "New Folder", Gfx::ALIGN_CENTER);
         
@@ -782,7 +782,7 @@ void FileManagerScreen::DrawContextMenu() {
         if (selectSelected) {
             Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
         }
-        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40,
+        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 28,
                    selectSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT,
                    "Select", Gfx::ALIGN_CENTER);
         
@@ -791,7 +791,7 @@ void FileManagerScreen::DrawContextMenu() {
         if (copySelected) {
             Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
         }
-        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40,
+        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 28,
                    copySelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT,
                    "Copy", Gfx::ALIGN_CENTER);
         
@@ -800,7 +800,7 @@ void FileManagerScreen::DrawContextMenu() {
         if (moveSelected) {
             Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
         }
-        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40,
+        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 28,
                    moveSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT,
                    "Move", Gfx::ALIGN_CENTER);
         
@@ -810,7 +810,7 @@ void FileManagerScreen::DrawContextMenu() {
         if (pasteSelected) {
             Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
         }
-        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40,
+        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 28,
                    canPaste ? (pasteSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT) : Gfx::COLOR_ALT_TEXT,
                    "Paste", Gfx::ALIGN_CENTER);
         
@@ -819,7 +819,7 @@ void FileManagerScreen::DrawContextMenu() {
         if (renameSelected) {
             Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
         }
-        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40,
+        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 28,
                    renameSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT,
                    "Rename", Gfx::ALIGN_CENTER);
         
@@ -828,12 +828,12 @@ void FileManagerScreen::DrawContextMenu() {
         if (deleteSelected) {
             Gfx::DrawRectFilled(menuX + 10, optionY - 5, menuWidth - 20, 50, Gfx::COLOR_HIGHLIGHTED);
         }
-        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 40,
+        Gfx::Print(menuX + menuWidth / 2, optionY + 20, 28,
                    deleteSelected ? Gfx::COLOR_WHITE : Gfx::COLOR_TEXT,
                    "Delete", Gfx::ALIGN_CENTER);
     }
     
-    Gfx::Print(menuX + menuWidth / 2, menuY + menuHeight - 30, 28,
+    Gfx::Print(menuX + menuWidth / 2, menuY + menuHeight - 30, 22,
                Gfx::COLOR_WHITE, "A: Select  B: Cancel", Gfx::ALIGN_CENTER);
 }
 
@@ -879,10 +879,10 @@ void FileManagerScreen::DrawDeletionModal() {
     Gfx::DrawRectFilled(modalX + modalWidth - borderWidth, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED); // Right
     
     std::string message = "Deleting " + mDeletionFileName;
-    Gfx::Print(modalX + modalWidth / 2, modalY + modalHeight / 2 - 30, 48, 
+    Gfx::Print(modalX + modalWidth / 2, modalY + modalHeight / 2 - 30, 30,
                Gfx::COLOR_WHITE, message, Gfx::ALIGN_CENTER);
     
-    Gfx::Print(modalX + modalWidth / 2, modalY + modalHeight / 2 + 30, 40, 
+    Gfx::Print(modalX + modalWidth / 2, modalY + modalHeight / 2 + 30, 26,
                Gfx::COLOR_ALT_TEXT, "Please Wait...", Gfx::ALIGN_CENTER);
 }
 
@@ -904,15 +904,15 @@ void FileManagerScreen::DrawDeleteConfirmModal() {
     std::string confirmLine = mPendingDeletePaths.size() > 1
         ? "Are you sure you want to delete the selected files?"
         : "Are you sure you want to delete?";
-    Gfx::Print(modalX + modalWidth / 2, modalY + 60, 32,
+    Gfx::Print(modalX + modalWidth / 2, modalY + 60, 26,
                Gfx::COLOR_WHITE, confirmLine, Gfx::ALIGN_CENTER);
     
     if (mPendingDeletePaths.size() == 1) {
-        Gfx::Print(modalX + modalWidth / 2, modalY + 100, 36,
+        Gfx::Print(modalX + modalWidth / 2, modalY + 100, 28,
                    Gfx::COLOR_WHITE, mPendingDeleteFileNames[0], Gfx::ALIGN_CENTER);
     }
     
-    Gfx::Print(modalX + modalWidth / 2, modalY + 140, 30,
+    Gfx::Print(modalX + modalWidth / 2, modalY + 140, 24,
                Gfx::COLOR_WHITE,
                mPendingDeletePaths.size() > 1 ? "They will be deleted permanently." : "It will be deleted permanently.",
                Gfx::ALIGN_CENTER);
@@ -931,9 +931,9 @@ void FileManagerScreen::DrawDeleteConfirmModal() {
         Gfx::DrawRectFilled(cancelX, buttonY, buttonWidth, buttonHeight, Gfx::COLOR_BARS);
         Gfx::DrawRectFilled(deleteX, buttonY, buttonWidth, buttonHeight, Gfx::COLOR_HIGHLIGHTED);
     }
-    Gfx::Print(cancelX + buttonWidth / 2, buttonY + buttonHeight / 2 + 5, 40,
+    Gfx::Print(cancelX + buttonWidth / 2, buttonY + buttonHeight / 2 + 5, 28,
                Gfx::COLOR_WHITE, "Cancel", Gfx::ALIGN_CENTER);
-    Gfx::Print(deleteX + buttonWidth / 2, buttonY + buttonHeight / 2 + 5, 40,
+    Gfx::Print(deleteX + buttonWidth / 2, buttonY + buttonHeight / 2 + 5, 28,
                Gfx::COLOR_WHITE, "Delete", Gfx::ALIGN_CENTER);
 }
 
@@ -952,10 +952,10 @@ void FileManagerScreen::DrawLoadingModal() {
     Gfx::DrawRectFilled(modalX, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED); // Left
     Gfx::DrawRectFilled(modalX + modalWidth - borderWidth, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED); // Right
     
-    Gfx::Print(modalX + modalWidth / 2, modalY + modalHeight / 2 - 30, 48, 
+    Gfx::Print(modalX + modalWidth / 2, modalY + modalHeight / 2 - 30, 30,
                Gfx::COLOR_WHITE, "Loading Directory", Gfx::ALIGN_CENTER);
-    
-    Gfx::Print(modalX + modalWidth / 2, modalY + modalHeight / 2 + 30, 36, 
+
+    Gfx::Print(modalX + modalWidth / 2, modalY + modalHeight / 2 + 30, 26,
                Gfx::COLOR_ALT_TEXT, mLoadingPath, Gfx::ALIGN_CENTER);
 }
 
@@ -975,7 +975,7 @@ void FileManagerScreen::DrawCopyProgressModal() {
     Gfx::DrawRectFilled(modalX + modalWidth - borderWidth, modalY,                         borderWidth, modalHeight,  Gfx::COLOR_HIGHLIGHTED); // Right
 
     std::string title = mClipboardIsMove ? "Moving" : "Copying";
-    Gfx::Print(modalX + modalWidth / 2, modalY + 40, 48,
+    Gfx::Print(modalX + modalWidth / 2, modalY + 40, 30,
                Gfx::COLOR_WHITE, title, Gfx::ALIGN_CENTER);
 
     // Filename
@@ -1019,7 +1019,7 @@ void FileManagerScreen::DrawCopyProgressModal() {
     // Percentage label
     int percent = static_cast<int>(progress * 100.0f);
     std::string percentStr = std::to_string(percent) + "%";
-    Gfx::Print(modalX + modalWidth / 2, barY + barHeight + 28, 36,
+    Gfx::Print(modalX + modalWidth / 2, barY + barHeight + 28, 26,
                Gfx::COLOR_ALT_TEXT, percentStr, Gfx::ALIGN_CENTER);
 }
 
@@ -1069,10 +1069,10 @@ void FileManagerScreen::DrawLaunchConfirmModal() {
     Gfx::DrawRectFilled(modalX + modalWidth - borderWidth, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED);
     
     std::string message = "Are you sure you want to open";
-    Gfx::Print(modalX + modalWidth / 2, modalY + 60, 42, 
+    Gfx::Print(modalX + modalWidth / 2, modalY + 60, 28,
                Gfx::COLOR_WHITE, message, Gfx::ALIGN_CENTER);
-    
-    Gfx::Print(modalX + modalWidth / 2, modalY + 110, 44, 
+
+    Gfx::Print(modalX + modalWidth / 2, modalY + 110, 30,
                Gfx::COLOR_WHITE, mLaunchFileName + "?", Gfx::ALIGN_CENTER);
     
     int buttonY = modalY + 190;
@@ -1087,15 +1087,15 @@ void FileManagerScreen::DrawLaunchConfirmModal() {
     } else {
         Gfx::DrawRectFilled(yesButtonX, buttonY, buttonWidth, buttonHeight, Gfx::COLOR_BARS);
     }
-    Gfx::Print(yesButtonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 5, 40, 
+    Gfx::Print(yesButtonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 5, 28,
                Gfx::COLOR_WHITE, "Yes!", Gfx::ALIGN_CENTER);
-    
+
     if (mLaunchModalSelection == 1) {
         Gfx::DrawRectFilled(noButtonX, buttonY, buttonWidth, buttonHeight, Gfx::COLOR_HIGHLIGHTED);
     } else {
         Gfx::DrawRectFilled(noButtonX, buttonY, buttonWidth, buttonHeight, Gfx::COLOR_BARS);
     }
-    Gfx::Print(noButtonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 5, 40, 
+    Gfx::Print(noButtonX + buttonWidth / 2, buttonY + buttonHeight / 2 + 5, 28,
                Gfx::COLOR_WHITE, "Never mind", Gfx::ALIGN_CENTER);
 }
 
