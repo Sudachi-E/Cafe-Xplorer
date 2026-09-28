@@ -114,7 +114,7 @@ void SettingsScreen::Draw() {
     }
 
     DrawTopBar("Settings");
-    Gfx::Print(Gfx::SCREEN_WIDTH - 40, 40, 26, Gfx::COLOR_TEXT, "v2.0", Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
+    Gfx::Print(sTopBarClockLeft - 30, 40, 26, Gfx::COLOR_TEXT, "v2.0", Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
     Gfx::Print(Gfx::SCREEN_WIDTH / 2, 40, 26, Gfx::COLOR_TEXT, "Cafe-Xplorer", Gfx::ALIGN_CENTER);
 
     int yPos = 150;

@@ -1,10 +1,12 @@
 #include "Screen.hpp"
 #include "Gfx.hpp"
+#include "utils/DateTimeUtils.hpp"
 #include <cstring>
 #include <vector>
 #include <string>
 
 Input::eControllerType Screen::sActiveControllerType = Input::CONTROLLER_TYPE_GAMEPAD;
+int Screen::sTopBarClockLeft = 0;
 
 struct ButtonGlyph {
     const char* token;
@@ -123,12 +125,35 @@ static int DrawHints(const std::vector<HintEntry>& hints,
 }
 
 void Screen::DrawTopBar(const char *title) {
+    constexpr int TITLE_SIZE = 35;
+    constexpr int CLOCK_SIZE = 30;
+    constexpr int MARGIN     = 40;
+
     Gfx::DrawRectFilled(0, 0, Gfx::SCREEN_WIDTH, 80, Gfx::COLOR_BARS);
 
     Gfx::DrawRectFilled(0, 77, Gfx::SCREEN_WIDTH, 3, Gfx::COLOR_ACCENT);
 
+    static bool clockValid = false;
+    static struct tm lastShown = {};
+    static std::string clockText;
+    struct tm now = GetConsoleLocalTime();
+    if (!clockValid || now.tm_min != lastShown.tm_min || now.tm_hour != lastShown.tm_hour ||
+        now.tm_mday != lastShown.tm_mday || now.tm_mon != lastShown.tm_mon ||
+        now.tm_year != lastShown.tm_year) {
+        clockValid = true;
+        lastShown = now;
+        clockText = FormatCalendarTime(now);
+    }
+
+    sTopBarClockLeft = static_cast<int>(Gfx::SCREEN_WIDTH) - MARGIN -
+                       Gfx::GetTextWidth(CLOCK_SIZE, clockText);
+    Gfx::Print(sTopBarClockLeft, 40, CLOCK_SIZE, Gfx::COLOR_ALT_TEXT,
+               clockText, Gfx::ALIGN_LEFT | Gfx::ALIGN_VERTICAL);
+
     if (title) {
-        Gfx::Print(40, 40, 35, Gfx::COLOR_TEXT, title, Gfx::ALIGN_LEFT | Gfx::ALIGN_VERTICAL);
+        Gfx::Print(MARGIN, 40, TITLE_SIZE, Gfx::COLOR_TEXT,
+                   Gfx::TruncateToWidth(title, TITLE_SIZE, sTopBarClockLeft - MARGIN - 60),
+                   Gfx::ALIGN_LEFT | Gfx::ALIGN_VERTICAL);
     }
 }
 

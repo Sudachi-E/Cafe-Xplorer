@@ -3,6 +3,9 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <ctime>
+
+static constexpr const char* DATE_TEXT_SAMPLE = "2026-09-28 12:35 PM";
 
 struct FileEntry {
     std::string name;
@@ -12,6 +15,8 @@ struct FileEntry {
     bool isHidden;
     std::string displayName;
     std::string sizeText;
+    time_t modifiedTime = 0;
+    std::string dateText;
 };
 
 class FileManager {

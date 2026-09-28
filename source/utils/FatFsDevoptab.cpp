@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #define MAX_FAT_DEVICES FF_VOLUMES
 
@@ -74,6 +75,27 @@ static int fatfs_to_errno(FRESULT fr) {
     }
 }
 
+static time_t fatTimestampToTimeT(WORD fdate, WORD ftime) {
+    int year = ((fdate >> 9) & 0x7f) + 1980;
+    int month = (fdate >> 5) & 0x0f;
+    int day = fdate & 0x1f;
+    if (month < 1 || month > 12 || day < 1 || day > 31) return 0;
+
+    int hour = (ftime >> 11) & 0x1f;
+    int minute = (ftime >> 5) & 0x3f;
+    int second = (ftime & 0x1f) * 2;
+    if (hour > 23 || minute > 59 || second > 59) return 0;
+
+    int shiftedYear = year - (month <= 2 ? 1 : 0);
+    int era = (shiftedYear >= 0 ? shiftedYear : shiftedYear - 399) / 400;
+    unsigned yearOfEra = (unsigned)(shiftedYear - era * 400);
+    unsigned dayOfYear = (unsigned)((153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1);
+    unsigned dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear;
+    long long days = (long long)era * 146097 + (long long)dayOfEra - 719468;
+
+    return (time_t)(days * 86400LL + hour * 3600 + minute * 60 + second);
+}
+
 static int fatfs_close_r(struct _reent *r, void *fd) {
     FRESULT fr = f_close((FIL*)fd);
     if (fr != FR_OK) { r->_errno = fatfs_to_errno(fr); return -1; }
@@ -134,6 +156,7 @@ static int fatfs_dirnext_r(struct _reent *r, DIR_ITER *dirState, char *filename,
     if (filestat) {
         memset(filestat, 0, sizeof(struct stat));
         filestat->st_size = fno.fsize;
+        filestat->st_mtime = fatTimestampToTimeT(fno.fdate, fno.ftime);
         if (fno.fattrib & AM_DIR)
             filestat->st_mode = S_IFDIR | S_IRWXU | S_IRWXG | S_IRWXO;
         else {
@@ -200,6 +223,7 @@ static int fatfs_stat_r_##drv(struct _reent *r, const char *file, struct stat *s
     if (fr != FR_OK) { r->_errno = fatfs_to_errno(fr); return -1; } \
     memset(st, 0, sizeof(struct stat)); \
     st->st_size = fno.fsize; \
+    st->st_mtime = fatTimestampToTimeT(fno.fdate, fno.ftime); \
     if (fno.fattrib & AM_DIR) \
         st->st_mode = S_IFDIR | S_IRWXU | S_IRWXG | S_IRWXO; \
     else { \

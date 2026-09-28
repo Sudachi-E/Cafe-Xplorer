@@ -4,12 +4,14 @@
 #include <whb/log.h>
 #include <cmath>
 #include <map>
+#include <vector>
 
 namespace Gfx {
     static SDL_Window *sWindow = nullptr;
     static SDL_Renderer *sRenderer = nullptr;
     static TTF_Font *sFont = nullptr;
     static std::map<int, TTF_Font*> sIconFontBySize;
+    static std::map<std::pair<int, int>, SDL_Texture*> sShapeTextures;
     static void *sFontData = nullptr;
     static uint32_t sFontSize = 0;
 
@@ -35,6 +37,19 @@ namespace Gfx {
     };
 
     static std::map<TextCacheKey, TextCacheValue> sTextCache;
+    static std::map<int, TTF_Font*> sFontBySize;
+
+    static TTF_Font* GetFontForSize(int size) {
+        auto it = sFontBySize.find(size);
+        if (it != sFontBySize.end()) return it->second;
+        if (!sFontData) return nullptr;
+
+        TTF_Font* font = TTF_OpenFontRW(SDL_RWFromMem(sFontData, sFontSize), 0, size);
+        if (!font) return nullptr;
+
+        sFontBySize[size] = font;
+        return font;
+    }
 
     static const TextCacheValue* GetCachedText(int size, const std::string& text, SDL_Color color) {
         TextCacheKey key{size, text, color};
@@ -43,22 +58,16 @@ namespace Gfx {
             return &it->second;
         }
 
-        if (!sFont || text.empty()) {
+        if (text.empty()) {
             return nullptr;
         }
 
-        TTF_Font* font = sFont;
-        if (size != 32) {
-            font = TTF_OpenFontRW(SDL_RWFromMem(sFontData, sFontSize), 0, size);
-            if (!font) {
-                return nullptr;
-            }
+        TTF_Font* font = GetFontForSize(size);
+        if (!font) {
+            return nullptr;
         }
 
         SDL_Surface *surface = TTF_RenderUTF8_Blended(font, text.c_str(), color);
-        if (size != 32) {
-            TTF_CloseFont(font);
-        }
         if (!surface) {
             return nullptr;
         }
@@ -115,20 +124,21 @@ namespace Gfx {
         SDL_SetRenderDrawBlendMode(sRenderer, SDL_BLENDMODE_BLEND);
 
         if (OSGetSharedData(OS_SHAREDDATATYPE_FONT_STANDARD, 0, &sFontData, &sFontSize)) {
-            sFont = TTF_OpenFontRW(SDL_RWFromMem(sFontData, sFontSize), 0, 32);
+            sFont = GetFontForSize(32);
         }
 
         return true;
     }
 
     void Shutdown() {
-        if (sFont) {
-            TTF_CloseFont(sFont);
-            sFont = nullptr;
-        }
+        for (auto& [key, fnt] : sFontBySize) TTF_CloseFont(fnt);
+        sFontBySize.clear();
+        sFont = nullptr;
 
         for (auto& [key, fnt] : sIconFontBySize) TTF_CloseFont(fnt);
         sIconFontBySize.clear();
+        for (auto& [key, tex] : sShapeTextures) SDL_DestroyTexture(tex);
+        sShapeTextures.clear();
         ClearTextCache();
 
         if (sRenderer) {
@@ -192,6 +202,99 @@ namespace Gfx {
             SDL_RenderDrawLine(sRenderer, x + radius - dx,     y + h - radius + dy, x + radius,          y + h - radius + dy);
             SDL_RenderDrawLine(sRenderer, x + w - radius,      y + h - radius + dy, x + w - radius + dx, y + h - radius + dy);
         }
+    }
+
+    static constexpr int ICON_SS = 4;
+
+    static bool InRect(float u, float v, float x0, float y0, float x1, float y1) {
+        return u >= x0 && u <= x1 && v >= y0 && v <= y1;
+    }
+
+    static bool FolderShape(float u, float v) {
+        if (InRect(u, v, 0.10f, 0.12f, 0.44f, 0.30f)) return true; // tab
+        if (InRect(u, v, 0.10f, 0.26f, 0.90f, 0.36f)) return true; // back
+        if (InRect(u, v, 0.10f, 0.40f, 0.90f, 0.88f)) return true; // front
+        return false;
+    }
+
+    static bool FileShape(float u, float v) {
+        if (!InRect(u, v, 0.24f, 0.10f, 0.76f, 0.90f)) return false;
+        if ((v - 0.10f) / 0.24f < (u - 0.56f) / 0.20f) return false;
+        if (InRect(u, v, 0.34f, 0.44f, 0.66f, 0.50f)) return false;
+        if (InRect(u, v, 0.34f, 0.57f, 0.66f, 0.63f)) return false;
+        if (InRect(u, v, 0.34f, 0.70f, 0.56f, 0.76f)) return false;
+        return true;
+    }
+
+    static SDL_Texture* BuildShapeTexture(int size, bool folder) {
+        const int res = size * ICON_SS;
+        const int samples = ICON_SS * ICON_SS;
+
+        std::vector<uint8_t> coverage(res * res, 0);
+        for (int py = 0; py < res; py++) {
+            for (int px = 0; px < res; px++) {
+                float u = ((float)px + 0.5f) / (float)res;
+                float v = ((float)py + 0.5f) / (float)res;
+                if (folder ? FolderShape(u, v) : FileShape(u, v)) {
+                    coverage[py * res + px] = 0xff;
+                }
+            }
+        }
+
+        SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(0, size, size, 32, SDL_PIXELFORMAT_ARGB8888);
+        if (!surface) return nullptr;
+
+        Uint32* pixels = (Uint32*)surface->pixels;
+        for (int y = 0; y < size; y++) {
+            for (int x = 0; x < size; x++) {
+                int sum = 0;
+                for (int sy = 0; sy < ICON_SS; sy++) {
+                    for (int sx = 0; sx < ICON_SS; sx++) {
+                        sum += coverage[(y * ICON_SS + sy) * res + (x * ICON_SS + sx)];
+                    }
+                }
+                pixels[y * size + x] = 0x00ffffffu | ((Uint32)(sum / samples) << 24);
+            }
+        }
+
+        SDL_Texture* texture = SDL_CreateTextureFromSurface(sRenderer, surface);
+        SDL_FreeSurface(surface);
+        if (!texture) return nullptr;
+
+        SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
+        return texture;
+    }
+
+    static void DrawShapeIcon(int x, int y, int size, SDL_Color color, bool folder, AlignFlags align) {
+        if (size <= 0) return;
+
+        auto key = std::make_pair(size, folder ? 0 : 1);
+        auto it = sShapeTextures.find(key);
+        if (it == sShapeTextures.end()) {
+            SDL_Texture* texture = BuildShapeTexture(size, folder);
+            if (!texture) return;
+            it = sShapeTextures.emplace(key, texture).first;
+        }
+
+        SDL_Texture* texture = it->second;
+        SDL_SetTextureColorMod(texture, color.r, color.g, color.b);
+        SDL_SetTextureAlphaMod(texture, color.a);
+
+        if (align & ALIGN_HORIZONTAL) x -= size / 2;
+        else if (align & ALIGN_RIGHT) x -= size;
+        if (align & ALIGN_VERTICAL) y -= size / 2;
+        else if (align & ALIGN_BOTTOM) y -= size;
+
+        SDL_Rect dstRect = {x, y, size, size};
+        SDL_RenderCopy(sRenderer, texture, nullptr, &dstRect);
+    }
+
+    void DrawFolderIcon(int x, int y, int size, SDL_Color color, AlignFlags align) {
+        DrawShapeIcon(x, y, size, color, true, align);
+    }
+
+    void DrawFileIcon(int x, int y, int size, SDL_Color color, AlignFlags align) {
+        DrawShapeIcon(x, y, size, color, false, align);
     }
 
     void Print(int x, int y, int size, SDL_Color color, const std::string& text, AlignFlags align) {
@@ -260,17 +363,35 @@ namespace Gfx {
     }
 
     int GetTextWidth(int size, const std::string& text) {
-        if (!sFont || text.empty()) return 0;
+        TTF_Font* font = GetFontForSize(size);
+        if (!font || text.empty()) return 0;
         int w = 0;
-        TTF_SizeUTF8(sFont, text.c_str(), &w, nullptr);
+        TTF_SizeUTF8(font, text.c_str(), &w, nullptr);
         return w;
     }
 
     int GetTextHeight(int size, const std::string& text) {
-        if (!sFont || text.empty()) return 0;
+        TTF_Font* font = GetFontForSize(size);
+        if (!font || text.empty()) return 0;
         int h = 0;
-        TTF_SizeUTF8(sFont, text.c_str(), nullptr, &h);
+        TTF_SizeUTF8(font, text.c_str(), nullptr, &h);
         return h;
+    }
+
+    std::string TruncateToWidth(const std::string& text, int size, int maxWidth) {
+        if (maxWidth <= 0 || text.empty() || GetTextWidth(size, text) <= maxWidth) {
+            return text;
+        }
+
+        std::string truncated;
+        for (size_t i = 0; i < text.size(); i++) {
+            truncated += text[i];
+            if (GetTextWidth(size, truncated + "...") > maxWidth) {
+                truncated.pop_back();
+                return truncated + "...";
+            }
+        }
+        return text;
     }
 
     SDL_Renderer* GetRenderer() {

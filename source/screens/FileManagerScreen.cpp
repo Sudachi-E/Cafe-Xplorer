@@ -34,6 +34,10 @@ static bool IsPdfFile(const std::string& filename) {
     return lower.ends_with(".pdf");
 }
 
+static constexpr int DATE_COLUMN_X = 1480;
+static constexpr int NAME_FONT_SIZE = 28;
+static constexpr int DATE_FONT_SIZE = 26;
+
 FileManagerScreen::FileManagerScreen() : mSelectedIndex(0), mScrollOffset(0), mShowContextMenu(false), mContextMenuSelection(0), mClipboardIsDirectory(false), mClipboardIsMove(false), mShowDeletionModal(false), mShowLoadingModal(false), mLoadingStartTime(0), mShowLaunchConfirmModal(false), mLaunchModalSelection(0), mLastUpdateTick(0), mHoldTimer(0.0f), mRepeatAccum(0.0f), mShowCopyProgressModal(false), mCopyProgressBytes(0), mCopyProgressTotal(0), mShowDeleteConfirmModal(false), mDeleteConfirmSelection(0), mSelectionMode(false), mMultiClipboardIsMove(false) {
     Settings::Initialize();
     
@@ -85,7 +89,7 @@ void FileManagerScreen::Draw() {
     if (mSelectionMode) {
         std::ostringstream sel;
         sel << "Selected: " << mSelectedIndices.size() << " / " << mFileManager.GetEntries().size();
-        Gfx::Print(Gfx::SCREEN_WIDTH - 40, 40, 26,
+        Gfx::Print(sTopBarClockLeft - 30, 40, 26,
                    Gfx::COLOR_TEXT, sel.str(), Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
     }
     
@@ -107,6 +111,7 @@ void FileManagerScreen::Draw() {
         int y = 80;
         int itemHeight = 60;
         int visibleItems = (Gfx::SCREEN_HEIGHT - 160) / itemHeight;
+        const int dateColumnWidth = Gfx::GetTextWidth(DATE_FONT_SIZE, DATE_TEXT_SAMPLE);
         
         if (mSelectedIndex < mScrollOffset) {
             mScrollOffset = mSelectedIndex;
@@ -126,8 +131,10 @@ void FileManagerScreen::Draw() {
             }
 
             int textX = 40;
+            int iconX = 20;
             if (mSelectionMode) {
-                textX = 70;
+                textX = 108;
+                iconX = 55;
                 int boxSize = 30;
                 int boxX = 15;
                 int boxY = y + (itemHeight - boxSize) / 2;
@@ -139,14 +146,29 @@ void FileManagerScreen::Draw() {
                 Gfx::DrawRectFilled(boxX, boxY + boxSize - 2, boxSize, 2, Gfx::COLOR_WHITE);
                 Gfx::DrawRectFilled(boxX, boxY, 2, boxSize, Gfx::COLOR_WHITE);
                 Gfx::DrawRectFilled(boxX + boxSize - 2, boxY, 2, boxSize, Gfx::COLOR_WHITE);
+            } else {
+                textX = 73;
             }
 
             SDL_Color nameColor = isSelected ? Gfx::COLOR_WHITE : (entry.isHidden ? Gfx::COLOR_HIDDEN : Gfx::COLOR_TEXT);
-            Gfx::Print(textX, y + 20, 28, nameColor, entry.displayName, Gfx::ALIGN_LEFT | Gfx::ALIGN_VERTICAL);
+            SDL_Color iconColor = isSelected ? Gfx::COLOR_WHITE : (entry.isHidden ? Gfx::COLOR_HIDDEN : Gfx::COLOR_WHITE);
+            SDL_Color detailColor = isSelected ? Gfx::COLOR_WHITE : (entry.isHidden ? Gfx::COLOR_HIDDEN : Gfx::COLOR_WHITE);
+
+            if (entry.isDirectory) {
+                Gfx::DrawFolderIcon(iconX, y + itemHeight / 2, 40, iconColor, Gfx::ALIGN_LEFT | Gfx::ALIGN_VERTICAL);
+            } else {
+                Gfx::DrawFileIcon(iconX, y + itemHeight / 2, 40, iconColor, Gfx::ALIGN_LEFT | Gfx::ALIGN_VERTICAL);
+            }
+
+            Gfx::Print(textX, y + 20, NAME_FONT_SIZE, nameColor,
+                       Gfx::TruncateToWidth(entry.displayName, NAME_FONT_SIZE, DATE_COLUMN_X - 30 - dateColumnWidth - textX),
+                       Gfx::ALIGN_LEFT | Gfx::ALIGN_VERTICAL);
+
+            Gfx::Print(DATE_COLUMN_X, y + 20, DATE_FONT_SIZE, detailColor,
+                       entry.dateText, Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
 
             if (!entry.isDirectory) {
-                Gfx::Print(Gfx::SCREEN_WIDTH - 60, y + 20, 26,
-                           isSelected ? Gfx::COLOR_WHITE : (entry.isHidden ? Gfx::COLOR_HIDDEN : Gfx::COLOR_WHITE),
+                Gfx::Print(Gfx::SCREEN_WIDTH - 60, y + 20, DATE_FONT_SIZE, detailColor,
                            entry.sizeText, Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
             }
             

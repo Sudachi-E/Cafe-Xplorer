@@ -299,7 +299,7 @@ void PdfViewerScreen::Draw()
     } else {
         snprintf(info, sizeof(info), "%.0f%%", mZoom * 100.0f);
     }
-    Gfx::Print(Gfx::SCREEN_WIDTH - 40, 40, 26,
+    Gfx::Print(sTopBarClockLeft - 30, 40, 26,
                Gfx::COLOR_TEXT, info, Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
 }
 

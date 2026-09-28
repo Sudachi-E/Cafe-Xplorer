@@ -17,5 +17,7 @@ protected:
     static void DrawTopBar(const char *title);
     static void DrawBottomBar(const char *leftHint, const char *centerHint, const char *rightHint);
 
+    static int sTopBarClockLeft;
+
     static Input::eControllerType sActiveControllerType;
 };

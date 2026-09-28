@@ -1,5 +1,6 @@
 #include "FileManager.h"
 #include "PathConverter.hpp"
+#include "../utils/DateTimeUtils.hpp"
 #include "../utils/logger.h"
 #include "../utils/Settings.hpp"
 #include <dirent.h>
@@ -27,11 +28,23 @@ static std::string FormatSizeText(size_t bytes) {
     return oss.str();
 }
 
+static std::string FormatDateText(time_t modifiedTime) {
+    if (modifiedTime <= 0) {
+        return "--";
+    }
+
+    struct tm brokenDown;
+    if (!gmtime_r(&modifiedTime, &brokenDown)) {
+        return "--";
+    }
+    return FormatCalendarTime(brokenDown);
+}
+
 static void PopulateFileEntryDisplay(FileEntry& fileEntry) {
     fileEntry.isHidden = !fileEntry.name.empty() && fileEntry.name[0] == '.';
-    fileEntry.displayName = fileEntry.isDirectory ? "[DIR] " : "      ";
-    fileEntry.displayName += fileEntry.name;
+    fileEntry.displayName = fileEntry.name;
     fileEntry.sizeText = fileEntry.isDirectory ? std::string() : FormatSizeText(fileEntry.size);
+    fileEntry.dateText = FormatDateText(fileEntry.modifiedTime);
 }
 
 FileManager::FileManager() : mCurrentPath("/") {
@@ -128,6 +141,7 @@ bool FileManager::ScanDirectory(const std::string& path) {
         if (stat(realEntryPath.c_str(), &st) == 0) {
             fileEntry.isDirectory = S_ISDIR(st.st_mode);
             fileEntry.size = st.st_size;
+            fileEntry.modifiedTime = st.st_mtime;
         } else {
             fileEntry.isDirectory = false;
             fileEntry.size = 0;
