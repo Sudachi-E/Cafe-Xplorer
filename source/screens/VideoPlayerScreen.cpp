@@ -4,7 +4,8 @@
 #include <whb/log.h>
 
 VideoPlayerScreen::VideoPlayerScreen(const std::string& videoPath)
-    : mVideoPath(PathConverter::ToRealPath(videoPath)), mVideoTexture(nullptr), mShouldClose(false),
+    : mVideoPath(PathConverter::ToRealPath(videoPath)), mVideoTexture(nullptr), mVideoNV12(false),
+      mShouldClose(false),
       mLoadError(false), mIsPlaying(false), mIsPaused(false), mInitialized(false),
       mShowUI(true), mShowTopBar(true), mShowSeekbar(true), mIsRawVideo(false), mShowRawVideoWarning(false),
       mVideoWidth(1280), mVideoHeight(720), mPlaybackStartTime(0),
@@ -306,6 +307,33 @@ void VideoPlayerScreen::UpdatePlayback() {
 
     Uint32 updateStartTime = SDL_GetTicks();
 
+    if (mVideoTexture && mVideoNV12 != mDecoder.IsPresentingNV12()) {
+        mVideoNV12 = mDecoder.IsPresentingNV12();
+        SDL_DestroyTexture(mVideoTexture);
+        mVideoTexture = CreateVideoTexture();
+        if (!mVideoTexture) {
+            WHBLogPrintf("[PERF] Failed to recreate the texture after the NV12 fallback");
+        }
+    }
+
+    if (mDecoder.GetWidth() != mVideoWidth || mDecoder.GetHeight() != mVideoHeight) {
+        int newWidth = mDecoder.GetWidth();
+        int newHeight = mDecoder.GetHeight();
+        if (newWidth > 0 && newHeight > 0) {
+            WHBLogPrintf("[PERF] Video size changed to %dx%d, recreating the texture", newWidth, newHeight);
+            mVideoWidth = newWidth;
+            mVideoHeight = newHeight;
+            if (mVideoTexture) {
+                SDL_DestroyTexture(mVideoTexture);
+                mVideoTexture = nullptr;
+            }
+            mVideoTexture = CreateVideoTexture();
+            if (!mVideoTexture) {
+                WHBLogPrintf("[PERF] Failed to recreate the texture at %dx%d", mVideoWidth, mVideoHeight);
+            }
+        }
+    }
+
     double videoPTS = mDecoder.GetCurrentTime();
     double audioPTS = mDecoder.GetAudioTime();
     double targetPts = mPlaybackStartPTS;
@@ -448,6 +476,24 @@ void VideoPlayerScreen::UpdatePlayback() {
     }
 }
 
+SDL_Texture* VideoPlayerScreen::CreateVideoTexture() {
+    Uint32 format = SDL_PIXELFORMAT_RGBA32;
+
+    SDL_Texture* texture = SDL_CreateTexture(Gfx::GetRenderer(), format,
+                                             SDL_TEXTUREACCESS_STREAMING,
+                                             mVideoWidth, mVideoHeight);
+    if (!texture && mVideoNV12) {
+        WHBLogPrintf("[PERF] NV12 texture refused (%s), converting on the CPU", SDL_GetError());
+        mVideoNV12 = false;
+        mDecoder.SetPresentingNV12(false);
+        format = SDL_PIXELFORMAT_RGBA32;
+        texture = SDL_CreateTexture(Gfx::GetRenderer(), format,
+                                    SDL_TEXTUREACCESS_STREAMING,
+                                    mVideoWidth, mVideoHeight);
+    }
+    return texture;
+}
+
 void VideoPlayerScreen::InitializeVideo() {
     Uint32 initStart = SDL_GetTicks();
     WHBLogPrintf("[PERF] InitializeVideo: Starting initialization");
@@ -488,12 +534,11 @@ void VideoPlayerScreen::InitializeVideo() {
     }
     
     Uint32 textureStart = SDL_GetTicks();
-    mVideoTexture = SDL_CreateTexture(Gfx::GetRenderer(),
-                                      SDL_PIXELFORMAT_RGBA32,
-                                      SDL_TEXTUREACCESS_STREAMING,
-                                      mVideoWidth, mVideoHeight);
+    mVideoNV12 = mDecoder.IsPresentingNV12();
+    mVideoTexture = CreateVideoTexture();
     Uint32 textureEnd = SDL_GetTicks();
-    WHBLogPrintf("[PERF] InitializeVideo: Texture creation took %u ms", textureEnd - textureStart);
+    WHBLogPrintf("[PERF] InitializeVideo: Texture creation took %u ms (%s)", textureEnd - textureStart,
+                 mVideoNV12 ? "NV12, converted by the GPU" : "RGBA, converted on the CPU");
     
     if (!mVideoTexture) {
         mLoadError = true;

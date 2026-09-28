@@ -19,10 +19,12 @@ private:
     void CalculateDisplayRect(SDL_Rect& rect);
     void UpdatePlayback();
     void InitializeVideo();
+    SDL_Texture* CreateVideoTexture();
     
     std::string mVideoPath;
     VideoDecoder mDecoder;
     SDL_Texture* mVideoTexture;
+    bool mVideoNV12;
     
     bool mShouldClose;
     bool mLoadError;

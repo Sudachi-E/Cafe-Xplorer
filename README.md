@@ -42,6 +42,7 @@ A multi-purpose file manager for the Nintendo Wii U.
 - Reset zoom
 
 ### Video Player
+- Supports up to 480p30
 - Play MP4, AVI, MKV, and MOV video files
 - Playback controls (Play/Pause)
 - Seek forward/backward (10 seconds)

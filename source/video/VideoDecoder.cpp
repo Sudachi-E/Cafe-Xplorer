@@ -1,15 +1,116 @@
 #include "VideoDecoder.hpp"
 #include <whb/log.h>
+#include <coreinit/cache.h>
+#include <malloc.h>
+
+static const char* const kHardwareDecoderName = "h264_wiiu";
+
+static VideoDecoder::DecodeMode s_decodeMode = VideoDecoder::DecodeMode::Hardware;
+
+static constexpr size_t kHardwareFrameAlignment = 1024;
+
+namespace {
+
+struct HardwareFrames {
+    int size = 0;
+    std::vector<AVBufferRef*> spare;
+};
+
+HardwareFrames* GetHardwareFrames(AVCodecContext* ctx) {
+    return static_cast<HardwareFrames*>(ctx->opaque);
+}
+
+void FreeHardwareFrame(void* opaque, uint8_t* data) {
+    free(data);
+}
+
+AVBufferRef* AllocHardwareFrame(int size) {
+    void* data = memalign(kHardwareFrameAlignment, size);
+    if (!data) {
+        return nullptr;
+    }
+    DCFlushRange(data, size);
+    AVBufferRef* ref = av_buffer_create((uint8_t*)data, size, FreeHardwareFrame, nullptr, 0);
+    if (!ref) {
+        free(data);
+    }
+    return ref;
+}
+
+int GetHardwareFrame(AVCodecContext* ctx, AVFrame* frame, int flags) {
+    HardwareFrames* frames = GetHardwareFrames(ctx);
+    int pitch, rows, size;
+
+    if (!frames || frame->format != AV_PIX_FMT_NV12 || frame->width <= 0 || frame->height <= 0 ||
+        frame->width > 4096 || frame->height > 4096) {
+        return avcodec_default_get_buffer2(ctx, frame, flags);
+    }
+
+    pitch = (frame->width + 255) & ~255;
+    rows = (frame->height + 15) & ~15;
+    size = pitch * rows * 3 / 2;
+
+    if (size != frames->size) {
+        for (AVBufferRef* ref : frames->spare) {
+            av_buffer_unref(&ref);
+        }
+        frames->spare.clear();
+        frames->size = size;
+    }
+
+    AVBufferRef* ref = frames->spare.empty() ? AllocHardwareFrame(size) : nullptr;
+    if (!ref && !frames->spare.empty()) {
+        ref = frames->spare.back();
+        frames->spare.pop_back();
+    }
+    if (!ref) {
+        return AVERROR(ENOMEM);
+    }
+
+    frame->buf[0] = ref;
+    frame->data[0] = ref->data;
+    frame->data[1] = frame->data[0] + pitch * rows;
+    frame->linesize[0] = frame->linesize[1] = pitch;
+    frame->extended_data = frame->data;
+    return 0;
+}
+
+void AttachHardwareFrames(AVCodecContext* ctx) {
+    ctx->opaque = new HardwareFrames;
+    ctx->get_buffer2 = GetHardwareFrame;
+}
+
+void DetachHardwareFrames(AVCodecContext* ctx) {
+    if (!ctx || ctx->get_buffer2 != GetHardwareFrame) {
+        return;
+    }
+    HardwareFrames* frames = GetHardwareFrames(ctx);
+    ctx->get_buffer2 = avcodec_default_get_buffer2;
+    ctx->opaque = nullptr;
+    if (frames) {
+        for (AVBufferRef* ref : frames->spare) {
+            av_buffer_unref(&ref);
+        }
+        delete frames;
+    }
+}
+
+}  // namespace
 
 VideoDecoder::VideoDecoder()
     : mFormatCtx(nullptr), mVideoCodecCtx(nullptr), mAudioCodecCtx(nullptr),
-      mSwsCtx(nullptr), mSwrCtx(nullptr), mAvioCtx(nullptr), mFrame(nullptr),
-      mFrameRGB(nullptr), mAudioFrame(nullptr), mPacket(nullptr),
+      mSwsCtx(nullptr), mSwrCtx(nullptr), mAvioCtx(nullptr),
+      mDecodeMode(DecodeMode::Software), mVideoPacketsDecoded(0), mVideoPicturesDecoded(0),
+      mUseNV12(false),
+      mFrame(nullptr), mFrameRGB(nullptr), mAudioFrame(nullptr), mPacket(nullptr),
       mVideoStreamIndex(-1), mAudioStreamIndex(-1), mWidth(0), mHeight(0),
       mDuration(0.0), mCurrentTime(0.0), mAudioTime(0.0), mBuffer(nullptr),
       mAvioBuffer(nullptr), mAudioBuffer(nullptr), mAudioBufferSize(0),
-      mAudioBufferIndex(0), mReadyBuf(nullptr), mReadyBufSize(0),
-      mAudioDevice(0), mPacketMutex(nullptr),
+      mAudioBufferIndex(0),
+      mSwsWidth(0), mSwsHeight(0),
+      mStatWindowStart(0), mStatDecodeUs(0), mStatScaleUs(0), mStatWaitUs(0),
+      mStatFrames(0), mStatLastDecodeStart(0),
+      mPresentedTexture(nullptr), mPresentedUseNV12(0), mPresentedY(0), mPresentedUV(0), mPresentedPitch(0), mPresentedCount(0), mAudioDevice(0), mPacketMutex(nullptr),
       mVideoDecodeMutex(nullptr), mAudioPacket(nullptr), mPacketReaderThread(nullptr),
       mReaderReachedEOF(0), mFrameWorkerThread(nullptr), mFile(nullptr) {
     mPacketMutex = SDL_CreateMutex();
@@ -55,10 +156,255 @@ int64_t VideoDecoder::Seek(void* opaque, int64_t offset, int whence) {
     return ftell(file);
 }
 
+bool VideoDecoder::HardwareDecodeAvailable() {
+    static int available = -1;
+    if (available < 0) {
+        const AVCodec* codec = avcodec_find_decoder_by_name(kHardwareDecoderName);
+        available = codec ? 1 : 0;
+        WHBLogPrintf("VideoDecoder: hardware H.264 decoder (%s) %s", kHardwareDecoderName,
+                     available ? "available" : "NOT in this FFmpeg build");
+    }
+    return available != 0;
+}
+
+bool VideoDecoder::HardwareCanDecode(AVCodecParameters* params) {
+    if (!params || params->codec_id != AV_CODEC_ID_H264) {
+        return false;
+    }
+
+    if (params->width <= 0 || params->width > 1920 ||
+        params->height <= 0 || params->height > 1088) {
+        return false;
+    }
+    if (params->format == AV_PIX_FMT_YUV420P10LE ||
+        params->profile == FF_PROFILE_H264_HIGH_10 ||
+        params->profile == FF_PROFILE_H264_HIGH_422 ||
+        params->profile == FF_PROFILE_H264_HIGH_444_PREDICTIVE) {
+        return false;
+    }
+    return true;
+}
+
+const char* VideoDecoder::DecodeModeName(DecodeMode mode) {
+    switch (mode) {
+        case DecodeMode::Hardware:          return kHardwareDecoderName;
+        case DecodeMode::HardwareNoBFrames: return "h264_wiiu (no B-frames)";
+        case DecodeMode::Software:          return "software h264";
+    }
+    return "unknown";
+}
+
+VideoDecoder::DecodeMode VideoDecoder::GetDecodeMode() {
+    return s_decodeMode;
+}
+
+void VideoDecoder::SetDecodeMode(DecodeMode mode) {
+    s_decodeMode = mode;
+}
+
+VideoDecoder::DecodeMode VideoDecoder::DemoteDecodeMode(DecodeMode mode) {
+    DecodeMode next = mode;
+    if (next == DecodeMode::Hardware) {
+        next = DecodeMode::HardwareNoBFrames;
+    } else if (next == DecodeMode::HardwareNoBFrames) {
+        next = DecodeMode::Software;
+    }
+    return next;
+}
+
+void VideoDecoder::DemoteToNextMode() {
+    DecodeMode current = s_decodeMode;
+    DecodeMode next = DemoteDecodeMode(current);
+    if (next == current) {
+        return;
+    }
+    s_decodeMode = next;
+    WHBLogPrintf("VideoDecoder: falling back to %s", DecodeModeName(next));
+}
+
+bool VideoDecoder::OpenVideoDecoder(DecodeMode mode) {
+    AVCodecParameters* codecParams = mFormatCtx->streams[mVideoStreamIndex]->codecpar;
+    const AVCodec* codec = nullptr;
+    bool hardware = false;
+
+    if (mode != DecodeMode::Software && HardwareCanDecode(codecParams) && HardwareDecodeAvailable()) {
+        codec = avcodec_find_decoder_by_name(kHardwareDecoderName);
+        hardware = codec != nullptr;
+    }
+
+    if (!codec) {
+        if (codecParams->codec_id == AV_CODEC_ID_H264) {
+            codec = avcodec_find_decoder_by_name("h264");
+        } else {
+            codec = avcodec_find_decoder(codecParams->codec_id);
+        }
+    }
+
+    if (!codec) {
+        WHBLogPrintf("VideoDecoder::OpenVideoDecoder: no decoder for %s",
+                     avcodec_get_name(codecParams->codec_id));
+        return false;
+    }
+
+    AVCodecContext* ctx = avcodec_alloc_context3(codec);
+    if (!ctx) {
+        WHBLogPrintf("VideoDecoder::OpenVideoDecoder: could not allocate the codec context");
+        return false;
+    }
+
+    if (avcodec_parameters_to_context(ctx, codecParams) < 0) {
+        WHBLogPrintf("VideoDecoder::OpenVideoDecoder: could not copy the codec parameters");
+        avcodec_free_context(&ctx);
+        return false;
+    }
+
+    ctx->pkt_timebase = mFormatCtx->streams[mVideoStreamIndex]->time_base;
+
+    if (hardware) {
+        AttachHardwareFrames(ctx);
+
+        if (mode == DecodeMode::HardwareNoBFrames) {
+            ctx->skip_frame = AVDISCARD_NONREF;
+        }
+    } else {
+        ctx->thread_count = 3;
+        ctx->thread_type = FF_THREAD_SLICE | FF_THREAD_FRAME;
+        if (codecParams->codec_id == AV_CODEC_ID_H264) {
+            ctx->flags2 |= AV_CODEC_FLAG2_FAST;
+            ctx->skip_loop_filter = AVDISCARD_NONREF;
+            ctx->skip_frame = AVDISCARD_NONREF;
+        }
+    }
+
+    if (avcodec_open2(ctx, codec, nullptr) < 0) {
+        WHBLogPrintf("VideoDecoder::OpenVideoDecoder: could not open %s", codec->name);
+        DetachHardwareFrames(ctx);
+        avcodec_free_context(&ctx);
+        return false;
+    }
+
+    mVideoCodecCtx = ctx;
+    mDecodeMode = hardware ? mode : DecodeMode::Software;
+    mVideoPacketsDecoded = 0;
+    mVideoPicturesDecoded = 0;
+    mUseNV12 = false;
+
+    WHBLogPrintf("VideoDecoder::OpenVideoDecoder: %s (%s)", codec->name,
+                 DecodeModeName(mDecodeMode));
+    return true;
+}
+
+bool VideoDecoder::ReopenVideoDecoder() {
+    if (mVideoStreamIndex < 0) {
+        return false;
+    }
+
+    DemoteToNextMode();
+
+    if (mVideoCodecCtx) {
+        DetachHardwareFrames(mVideoCodecCtx);
+        avcodec_free_context(&mVideoCodecCtx);
+        mVideoCodecCtx = nullptr;
+    }
+
+    if (!OpenVideoDecoder(s_decodeMode)) {
+        mDecodeMode = DecodeMode::Software;
+        return false;
+    }
+
+    SDL_AtomicAdd(&mDecodeEpoch, 1);
+    return true;
+}
+
+bool VideoDecoder::SyncSwsContext(int width, int height) {
+    if (!mVideoCodecCtx || !mFrameRGB || width <= 0 || height <= 0) {
+        return false;
+    }
+
+    if (mSwsCtx && mSwsWidth == width && mSwsHeight == height) {
+        mWidth = width;
+        mHeight = height;
+        return true;
+    }
+
+    int swsFlags = SWS_FAST_BILINEAR;
+    if (mVideoCodecCtx->codec_id == AV_CODEC_ID_RAWVIDEO) {
+        swsFlags = SWS_POINT;
+        WHBLogPrintf("VideoDecoder: Using SWS_POINT (fastest) for raw video");
+    } else if (mVideoCodecCtx->width == width && mVideoCodecCtx->height == height) {
+        swsFlags = SWS_POINT;
+        WHBLogPrintf("VideoDecoder: No scaling needed, using SWS_POINT (colour conversion only)");
+    }
+
+    if (mSwsCtx) {
+        sws_freeContext(mSwsCtx);
+        mSwsCtx = nullptr;
+    }
+
+    mSwsCtx = sws_getContext(width, height, mVideoCodecCtx->pix_fmt,
+                            width, height, AV_PIX_FMT_RGBA,
+                            swsFlags, nullptr, nullptr, nullptr);
+    if (!mSwsCtx) {
+        WHBLogPrintf("VideoDecoder: could not create the scaler for %dx%d", width, height);
+        return false;
+    }
+
+    int srcRange = 0;
+    int dstRange = 1;
+    if (mVideoCodecCtx->pix_fmt == AV_PIX_FMT_YUVJ420P ||
+        mVideoCodecCtx->pix_fmt == AV_PIX_FMT_YUVJ422P ||
+        mVideoCodecCtx->pix_fmt == AV_PIX_FMT_YUVJ444P ||
+        mVideoCodecCtx->pix_fmt == AV_PIX_FMT_YUVJ440P) {
+        srcRange = 1;
+        WHBLogPrintf("VideoDecoder: Detected JPEG pixel format, using full-range YUV");
+    }
+
+    int *inv_table, *table;
+    int brightness, contrast, saturation;
+    sws_getColorspaceDetails(mSwsCtx, &inv_table, &srcRange, &table, &dstRange,
+                             &brightness, &contrast, &saturation);
+    sws_setColorspaceDetails(mSwsCtx, inv_table, srcRange, table, dstRange,
+                             brightness, contrast, saturation);
+
+    mSwsWidth = width;
+    mSwsHeight = height;
+    mWidth = width;
+    mHeight = height;
+
+    if (mBuffer) {
+        av_free(mBuffer);
+        mBuffer = nullptr;
+    }
+    int numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGBA, width, height, 1);
+    WHBLogPrintf("VideoDecoder: Allocating RGB buffer (%d bytes)", numBytes);
+    mBuffer = (uint8_t*)av_malloc(numBytes);
+    if (!mBuffer) {
+        return false;
+    }
+    av_image_fill_arrays(mFrameRGB->data, mFrameRGB->linesize, mBuffer,
+                        AV_PIX_FMT_RGBA, width, height, 1);
+    return true;
+}
+
+static void LogFFmpeg(void* avcl, int level, const char* fmt, va_list vl) {
+    if (level > AV_LOG_INFO) {
+        return;
+    }
+    char line[512];
+    vsnprintf(line, sizeof(line), fmt, vl);
+    WHBLogPrintf("[FFmpeg] %s", line);
+}
+
 bool VideoDecoder::Open(const std::string& path) {
     WHBLogPrintf("===========================================");
     WHBLogPrintf("VideoDecoder::Open: Starting to open: %s", path.c_str());
     WHBLogPrintf("===========================================");
+
+    static bool ffmpegLogRedirected = false;
+    if (!ffmpegLogRedirected) {
+        ffmpegLogRedirected = true;
+        av_log_set_callback(LogFFmpeg);
+    }
     
     static bool ffmpegInitialized = false;
     if (!ffmpegInitialized) {
@@ -282,31 +628,39 @@ bool VideoDecoder::Open(const std::string& path) {
         WHBLogPrintf("===========================================");
         WHBLogPrintf("VideoDecoder::Open: SETTING UP VIDEO CODEC");
         WHBLogPrintf("===========================================");
-        
+
         AVCodecParameters* codecParams = mFormatCtx->streams[mVideoStreamIndex]->codecpar;
         WHBLogPrintf("VideoDecoder::Open: Video codec ID: %d", codecParams->codec_id);
         WHBLogPrintf("VideoDecoder::Open: Video codec name: %s", avcodec_get_name(codecParams->codec_id));
         WHBLogPrintf("VideoDecoder::Open: Video dimensions: %dx%d", codecParams->width, codecParams->height);
-        WHBLogPrintf("VideoDecoder::Open: Video bitrate: %lld", codecParams->bit_rate);
-        
-        const AVCodec* codec = nullptr;
-        
-        if (codecParams->codec_id == AV_CODEC_ID_H264) {
-            WHBLogPrintf("VideoDecoder::Open: H.264 detected, trying hardware decoder");
-            codec = avcodec_find_decoder_by_name("h264_wiiu");
-            if (codec) {
-                WHBLogPrintf("VideoDecoder::Open: Using hardware H.264 decoder!");
+        WHBLogPrintf("VideoDecoder::Open: Video profile: %d, bitrate: %lld", codecParams->profile, codecParams->bit_rate);
+
+        DecodeMode wanted = s_decodeMode;
+        if (wanted != DecodeMode::Software) {
+            if (HardwareCanDecode(codecParams) && HardwareDecodeAvailable()) {
+                WHBLogPrintf("VideoDecoder::Open: stream is within what the Wii U's decoder takes, trying %s",
+                             DecodeModeName(wanted));
             } else {
-                WHBLogPrintf("VideoDecoder::Open: Hardware decoder not available, using optimized software");
-                codec = avcodec_find_decoder(codecParams->codec_id);
+                WHBLogPrintf("VideoDecoder::Open: stream is not for the Wii U's decoder (needs H.264, at most 1920x1088, 8 bit 4:2:0), decoding on the CPU");
+                wanted = DecodeMode::Software;
             }
-        } else {
-            WHBLogPrintf("VideoDecoder::Open: Searching for decoder for codec ID %d...", codecParams->codec_id);
-            codec = avcodec_find_decoder(codecParams->codec_id);
         }
-        
-        // Logging that will help with future codecs to be added if not available
-        if (!codec) {
+
+        if (!OpenVideoDecoder(wanted)) {
+            for (DecodeMode mode = DemoteDecodeMode(wanted); mode != wanted; mode = DemoteDecodeMode(mode)) {
+                WHBLogPrintf("VideoDecoder::Open: %s did not work out, trying %s",
+                             DecodeModeName(wanted), DecodeModeName(mode));
+                if (OpenVideoDecoder(mode)) {
+                    s_decodeMode = mode;
+                    break;
+                }
+                if (mode == DecodeMode::Software) {
+                    break;
+                }
+            }
+        }
+
+        if (!mVideoCodecCtx) {
             WHBLogPrintf("===========================================");
             WHBLogPrintf("VideoDecoder::Open: ✗✗✗ CODEC NOT FOUND ✗✗✗");
             WHBLogPrintf("===========================================");
@@ -321,49 +675,13 @@ bool VideoDecoder::Open(const std::string& path) {
             Close();
             return false;
         }
-        WHBLogPrintf("VideoDecoder::Open: ✓ Video codec found: %s", codec->name);
-        WHBLogPrintf("VideoDecoder::Open: Codec long name: %s", codec->long_name ? codec->long_name : "N/A");
-        
-        mVideoCodecCtx = avcodec_alloc_context3(codec);
-        if (!mVideoCodecCtx) {
-            WHBLogPrintf("VideoDecoder::Open: FAILED - Could not allocate video codec context");
-            mWidth = -5;
-            mHeight = 5;
-            Close();
-            return false;
-        }
-        
-        if (avcodec_parameters_to_context(mVideoCodecCtx, codecParams) < 0) {
-            WHBLogPrintf("VideoDecoder::Open: FAILED - Could not copy video codec params");
-            mWidth = -6;
-            mHeight = 6;
-            Close();
-            return false;
-        }
-        
-        mVideoCodecCtx->thread_count = 4;
-        mVideoCodecCtx->thread_type = FF_THREAD_SLICE;
-
-        if (codecParams->codec_id == AV_CODEC_ID_H264) {
-            mVideoCodecCtx->flags2 |= AV_CODEC_FLAG2_FAST;
-            mVideoCodecCtx->skip_loop_filter = AVDISCARD_NONREF;
-            mVideoCodecCtx->skip_frame = AVDISCARD_NONREF;
-        }
-        WHBLogPrintf("VideoDecoder::Open: Enabled multi-threading (%d threads) and fast decode", mVideoCodecCtx->thread_count);
-
-        if (avcodec_open2(mVideoCodecCtx, codec, nullptr) < 0) {
-            WHBLogPrintf("VideoDecoder::Open: FAILED - Could not open video codec");
-            mWidth = -7;
-            mHeight = 7;
-            Close();
-            return false;
-        }
 
         mWidth = mVideoCodecCtx->width;
         mHeight = mVideoCodecCtx->height;
         WHBLogPrintf("VideoDecoder::Open: Video codec opened. Dimensions: %dx%d", mWidth, mHeight);
         WHBLogPrintf("VideoDecoder::Open: Pixel format: %s", av_get_pix_fmt_name(mVideoCodecCtx->pix_fmt));
-        WHBLogPrintf("VideoDecoder::Open: Codec: %s", avcodec_get_name(mVideoCodecCtx->codec_id));
+        WHBLogPrintf("VideoDecoder::Open: Codec: %s, decoding: %s", avcodec_get_name(mVideoCodecCtx->codec_id),
+                     DecodeModeName(mDecodeMode));
     } else {
         WHBLogPrintf("VideoDecoder::Open: Audio-only file detected");
         mWidth = 1;
@@ -473,14 +791,6 @@ bool VideoDecoder::Open(const std::string& path) {
             return false;
         }
 
-        int numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGBA, mWidth, mHeight, 1);
-        WHBLogPrintf("VideoDecoder::Open: Allocating RGB buffer (%d bytes)", numBytes);
-        mBuffer = (uint8_t*)av_malloc(numBytes * sizeof(uint8_t));
-        av_image_fill_arrays(mFrameRGB->data, mFrameRGB->linesize, mBuffer,
-                            AV_PIX_FMT_RGBA, mWidth, mHeight, 1);
-
-        WHBLogPrintf("VideoDecoder::Open: Initializing SWS context");
-
         if (mVideoCodecCtx->pix_fmt == AV_PIX_FMT_NONE) {
             WHBLogPrintf("VideoDecoder::Open: FAILED - Invalid pixel format AV_PIX_FMT_NONE");
             mWidth = -10;
@@ -489,46 +799,15 @@ bool VideoDecoder::Open(const std::string& path) {
             return false;
         }
 
-        int swsFlags = SWS_FAST_BILINEAR;
+        WHBLogPrintf("VideoDecoder::Open: Initializing SWS context");
 
-        if (mVideoCodecCtx->codec_id == AV_CODEC_ID_RAWVIDEO) {
-            swsFlags = SWS_POINT;
-            WHBLogPrintf("VideoDecoder::Open: Using SWS_POINT (fastest) for raw video");
-        }
-
-        mSwsCtx = sws_getContext(mWidth, mHeight, mVideoCodecCtx->pix_fmt,
-                                mWidth, mHeight, AV_PIX_FMT_RGBA,
-                                swsFlags, nullptr, nullptr, nullptr);
-
-        if (!mSwsCtx) {
+        if (!SyncSwsContext(mWidth, mHeight)) {
             WHBLogPrintf("VideoDecoder::Open: FAILED - Could not initialize SWS context");
             mWidth = -9;
             mHeight = 9;
             Close();
             return false;
         }
-
-        // This ensures correct color conversion for YUVJ formats
-        int srcRange = 0;
-        int dstRange = 1;
-
-        // Detect JPEG pixel formats (YUVJ*)
-        if (mVideoCodecCtx->pix_fmt == AV_PIX_FMT_YUVJ420P ||
-            mVideoCodecCtx->pix_fmt == AV_PIX_FMT_YUVJ422P ||
-            mVideoCodecCtx->pix_fmt == AV_PIX_FMT_YUVJ444P ||
-            mVideoCodecCtx->pix_fmt == AV_PIX_FMT_YUVJ440P) {
-            srcRange = 1;
-            WHBLogPrintf("VideoDecoder::Open: Detected JPEG pixel format, using full-range YUV");
-        }
-
-        int *inv_table, *table;
-        int brightness, contrast, saturation;
-        sws_getColorspaceDetails(mSwsCtx, &inv_table, &srcRange, &table, &dstRange,
-                                 &brightness, &contrast, &saturation);
-
-        // Update with correct range
-        sws_setColorspaceDetails(mSwsCtx, inv_table, srcRange, table, dstRange,
-                                 brightness, contrast, saturation);
     } else {
         WHBLogPrintf("VideoDecoder::Open: Skipping video-specific resources (audio-only)");
     }
@@ -586,7 +865,11 @@ void VideoDecoder::Close() {
         mAudioPacketQueue.pop_front();
         av_packet_free(&pkt);
     }
+    for (DecodedVideoFrame& frame : mReadyFrameQueue) {
+        ReleaseReadyFrame(frame);
+    }
     mReadyFrameQueue.clear();
+    FreeFrameBuffers();
     SDL_UnlockMutex(mPacketMutex);
 
     StopAudio();
@@ -597,6 +880,8 @@ void VideoDecoder::Close() {
         sws_freeContext(mSwsCtx);
         mSwsCtx = nullptr;
     }
+    mSwsWidth = 0;
+    mSwsHeight = 0;
 
     if (mSwrCtx) {
         swr_free(&mSwrCtx);
@@ -613,12 +898,6 @@ void VideoDecoder::Close() {
         mAudioBuffer = nullptr;
         mAudioBufferSize = 0;
         mAudioBufferIndex = 0;
-    }
-
-    if (mReadyBuf) {
-        av_free(mReadyBuf);
-        mReadyBuf = nullptr;
-        mReadyBufSize = 0;
     }
 
     if (mFrameRGB) {
@@ -647,6 +926,7 @@ void VideoDecoder::Close() {
     }
 
     if (mVideoCodecCtx) {
+        DetachHardwareFrames(mVideoCodecCtx);
         avcodec_free_context(&mVideoCodecCtx);
         mVideoCodecCtx = nullptr;
     }
@@ -678,6 +958,17 @@ void VideoDecoder::Close() {
 
     mVideoStreamIndex = -1;
     mAudioStreamIndex = -1;
+    mDecodeMode = DecodeMode::Software;
+    mVideoPacketsDecoded = 0;
+    mVideoPicturesDecoded = 0;
+    mUseNV12 = false;
+    ReleaseGpuFrames();
+    mStatWindowStart = 0;
+    mStatDecodeUs = 0;
+    mStatScaleUs = 0;
+    mStatWaitUs = 0;
+    mStatFrames = 0;
+    mStatLastDecodeStart = 0;
 }
 
 bool VideoDecoder::Seek(double seconds) {
@@ -708,6 +999,9 @@ bool VideoDecoder::Seek(double seconds) {
         mVideoPacketQueue.pop_front();
         av_packet_free(&pkt);
     }
+    for (DecodedVideoFrame& frame : mReadyFrameQueue) {
+        ReleaseReadyFrame(frame);
+    }
     mReadyFrameQueue.clear();
     SDL_AtomicSet(&mReaderReachedEOF, 0);
     SDL_UnlockMutex(mPacketMutex);
@@ -722,7 +1016,7 @@ bool VideoDecoder::Seek(double seconds) {
     SDL_UnlockMutex(mVideoDecodeMutex);
 
     int64_t timestamp = (int64_t)(seconds * AV_TIME_BASE);
-    int ret = av_seek_frame(mFormatCtx, -1, timestamp, AVSEEK_FLAG_BACKWARD);
+    int ret = av_seek_frame(mFormatCtx, mVideoStreamIndex, timestamp, AVSEEK_FLAG_BACKWARD);
     if (ret < 0) {
         char errbuf[128];
         av_strerror(ret, errbuf, sizeof(errbuf));
@@ -769,9 +1063,23 @@ bool VideoDecoder::ReadFrame(SDL_Texture* texture, double targetPts) {
         }
 
         mCurrentTime = frame.pts;
-        if (texture && !frame.pixels.empty()) {
-            SDL_UpdateTexture(texture, nullptr, frame.pixels.data(), frame.pitch);
+        mPresentedTexture = texture;
+        mPresentedUseNV12 = 0;
+        mPresentedY = (uintptr_t) frame.y;
+        mPresentedUV = (uintptr_t) frame.uv;
+        mPresentedPitch = frame.pitch;
+        mPresentedCount++;
+        if (texture) {
+            if (frame.pixels) {
+                SDL_UpdateTexture(texture, nullptr, frame.pixels, frame.pitch);
+            }
         }
+
+        SDL_LockMutex(mPacketMutex);
+        if (frame.pixels) {
+            RecycleFrameBuffer(frame.pixels);
+        }
+        SDL_UnlockMutex(mPacketMutex);
         return true;
     }
 
@@ -813,7 +1121,23 @@ bool VideoDecoder::ReadFrame(SDL_Texture* texture, double targetPts) {
     totalPacketWaitTime += (unlockEndTime - lockStartTime);
 
     Uint32 sendPacketStartTime = SDL_GetTicks();
+    SDL_LockMutex(mVideoDecodeMutex);
+    mVideoPacketsDecoded++;
+    if (IsHardwareDecoding() && mVideoPicturesDecoded == 0 &&
+        mVideoPacketsDecoded >= kHardwareWatchdogPackets) {
+        WHBLogPrintf("[VIDEO] No pictures from the hardware decoder after %d packets, switching decoder",
+                     mVideoPacketsDecoded);
+        bool reopened = ReopenVideoDecoder();
+        SDL_UnlockMutex(mVideoDecodeMutex);
+        av_packet_free(&pkt);
+        ClearReadyFrames();
+        if (!reopened) {
+            return false;
+        }
+        return true;
+    }
     if (avcodec_send_packet(mVideoCodecCtx, pkt) < 0) {
+        SDL_UnlockMutex(mVideoDecodeMutex);
         av_packet_free(&pkt);
         WHBLogPrintf("[VIDEO] ERROR - Failed to send packet to decoder");
         return true;
@@ -824,9 +1148,17 @@ bool VideoDecoder::ReadFrame(SDL_Texture* texture, double targetPts) {
     Uint32 receiveFrameStartTime = SDL_GetTicks();
     int receiveResult = avcodec_receive_frame(mVideoCodecCtx, mFrame);
     Uint32 receiveFrameEndTime = SDL_GetTicks();
+    SDL_UnlockMutex(mVideoDecodeMutex);
     totalReceiveFrameTime += (receiveFrameEndTime - receiveFrameStartTime);
 
     if (receiveResult == 0) {
+        mVideoPicturesDecoded++;
+
+        if (!SyncSwsContext(mFrame->width, mFrame->height)) {
+            av_packet_free(&pkt);
+            return false;
+        }
+
         if (mFrame->pts != AV_NOPTS_VALUE) {
             mCurrentTime = mFrame->pts * av_q2d(mFormatCtx->streams[mVideoStreamIndex]->time_base);
         } else {
@@ -918,6 +1250,7 @@ bool VideoDecoder::PopReadyFrame(DecodedVideoFrame& frame, double targetPts) {
 
     // Discard stale frames first
     while (!mReadyFrameQueue.empty() && mReadyFrameQueue.front().epoch != currentEpoch) {
+        ReleaseReadyFrame(mReadyFrameQueue.front());
         mReadyFrameQueue.pop_front();
     }
 
@@ -965,6 +1298,7 @@ bool VideoDecoder::PopReadyFrame(DecodedVideoFrame& frame, double targetPts) {
             // Drop everything older than the best frame so the queue stays
             // ordered for the next call.
             for (size_t i = 0; i < bestIdx; ++i) {
+                ReleaseReadyFrame(mReadyFrameQueue.front());
                 mReadyFrameQueue.pop_front();
             }
         }
@@ -981,15 +1315,118 @@ bool VideoDecoder::PopReadyFrame(DecodedVideoFrame& frame, double targetPts) {
     return false;
 }
 
+size_t VideoDecoder::ReadyFrameBytes() const {
+    size_t bytes = 0;
+    for (const DecodedVideoFrame& frame : mReadyFrameQueue) {
+        bytes += frame.size;
+    }
+    return bytes;
+}
+
+bool VideoDecoder::HasReadyFrameRoom() const {
+    return mReadyFrameQueue.size() < kMaxReadyFrames && ReadyFrameBytes() < kMaxReadyBytes;
+}
+
+uint8_t* VideoDecoder::AcquireFrameBuffer(size_t size) {
+    if (size == 0) {
+        return nullptr;
+    }
+
+    for (size_t i = 0; i < mFrameBufferPool.size(); i++) {
+        if (mFrameBufferPool[i].size == size) {
+            FrameBuffer buffer = mFrameBufferPool[i];
+            mFrameBufferPool.erase(mFrameBufferPool.begin() + i);
+            mFrameBuffersInUse.push_back(buffer);
+            return buffer.data;
+        }
+    }
+
+    for (FrameBuffer& buffer : mFrameBufferPool) {
+        av_free(buffer.data);
+    }
+    mFrameBufferPool.clear();
+
+    if (mFrameBuffersInUse.size() >= kMaxReadyFrames + 2) {
+        return nullptr;
+    }
+    uint8_t* data = (uint8_t*)av_malloc(size);
+    if (data) {
+        mFrameBuffersInUse.push_back({ data, size });
+    }
+    return data;
+}
+
+void VideoDecoder::RecycleFrameBuffer(uint8_t* pixels) {
+    if (!pixels) {
+        return;
+    }
+    for (size_t i = 0; i < mFrameBuffersInUse.size(); i++) {
+        if (mFrameBuffersInUse[i].data == pixels) {
+            mFrameBufferPool.push_back(mFrameBuffersInUse[i]);
+            mFrameBuffersInUse.erase(mFrameBuffersInUse.begin() + i);
+            return;
+        }
+    }
+    av_free(pixels);
+}
+
+void VideoDecoder::FreeFrameBuffers() {
+    for (FrameBuffer& buffer : mFrameBufferPool) {
+        av_free(buffer.data);
+    }
+    for (FrameBuffer& buffer : mFrameBuffersInUse) {
+        av_free(buffer.data);
+    }
+    mFrameBufferPool.clear();
+    mFrameBuffersInUse.clear();
+}
+
+void VideoDecoder::HoldForGpu(AVBufferRef* hold) {
+    if (!hold) {
+        return;
+    }
+    if (mGpuHeldFrames[mGpuHeldIndex]) {
+        av_buffer_unref(&mGpuHeldFrames[mGpuHeldIndex]);
+    }
+    mGpuHeldFrames[mGpuHeldIndex] = hold;
+    mGpuHeldIndex = (mGpuHeldIndex + 1) % kGpuHeldFrames;
+}
+
+void VideoDecoder::ReleaseGpuFrames() {
+    for (size_t i = 0; i < kGpuHeldFrames; i++) {
+        if (mGpuHeldFrames[i]) {
+            av_buffer_unref(&mGpuHeldFrames[i]);
+        }
+    }
+    mGpuHeldIndex = 0;
+}
+
 bool VideoDecoder::QueueReadyFrame(DecodedVideoFrame&& frame) {
     SDL_LockMutex(mPacketMutex);
 
-    if (frame.epoch != SDL_AtomicGet(&mDecodeEpoch)) {
+    if (frame.epoch != SDL_AtomicGet(&mDecodeEpoch) || (!frame.pixels && !frame.hold)) {
+        static int rejected = 0;
+        if (rejected < 4) {
+            rejected++;
+            WHBLogPrintf("[DIAG] QueueReadyFrame rejected: epoch %d vs %d, pixels %p, hold %p, y %p",
+                         frame.epoch, SDL_AtomicGet(&mDecodeEpoch),
+                         (void*) frame.pixels, (void*) frame.hold, (void*) frame.y);
+        }
+        if (frame.pixels) {
+            RecycleFrameBuffer(frame.pixels);
+        }
+        av_buffer_unref(&frame.hold);
         SDL_UnlockMutex(mPacketMutex);
         return false;
     }
 
-    if (mReadyFrameQueue.size() >= kMaxReadyFrames) {
+    if (mReadyFrameQueue.size() >= kMaxReadyFrames || !HasReadyFrameRoom()) {
+        if (frame.pixels) {
+            RecycleFrameBuffer(frame.pixels);
+        }
+        av_buffer_unref(&frame.hold);
+        frame.pixels = nullptr;
+        frame.hold = nullptr;
         SDL_UnlockMutex(mPacketMutex);
         SDL_Delay(kReadyQueueBackpressureDelayMs);
         return false;
@@ -1002,8 +1439,20 @@ bool VideoDecoder::QueueReadyFrame(DecodedVideoFrame&& frame) {
 
 void VideoDecoder::ClearReadyFrames() {
     SDL_LockMutex(mPacketMutex);
+    for (DecodedVideoFrame& frame : mReadyFrameQueue) {
+        ReleaseReadyFrame(frame);
+    }
     mReadyFrameQueue.clear();
     SDL_UnlockMutex(mPacketMutex);
+}
+
+void VideoDecoder::ReleaseReadyFrame(DecodedVideoFrame& frame) {
+    if (frame.pixels) {
+        RecycleFrameBuffer(frame.pixels);
+        frame.pixels = nullptr;
+    }
+    av_buffer_unref(&frame.hold);
+    frame.size = 0;
 }
 
 int VideoDecoder::FrameWorkerThreadFunc(void* data) {
@@ -1082,6 +1531,23 @@ void VideoDecoder::FrameWorkerLoop() {
 
         SDL_LockMutex(mVideoDecodeMutex);
 
+        mStatLastDecodeStart = SDL_GetPerformanceCounter();
+        mVideoPacketsDecoded++;
+        if (IsHardwareDecoding() && mVideoPicturesDecoded == 0 &&
+            mVideoPacketsDecoded >= kHardwareWatchdogPackets) {
+            WHBLogPrintf("[FRAME] No pictures from the hardware decoder after %d packets, switching decoder",
+                         mVideoPacketsDecoded);
+            bool reopened = ReopenVideoDecoder();
+            workerEpoch = SDL_AtomicGet(&mDecodeEpoch);
+            av_packet_free(&pkt);
+            SDL_UnlockMutex(mVideoDecodeMutex);
+            ClearReadyFrames();
+            if (!reopened) {
+                SDL_AtomicSet(&mFrameWorkerRunning, 0);
+            }
+            continue;
+        }
+
         int sendResult = avcodec_send_packet(mVideoCodecCtx, pkt);
         av_packet_free(&pkt);
         if (sendResult < 0) {
@@ -1099,6 +1565,15 @@ void VideoDecoder::FrameWorkerLoop() {
                 break;
             }
 
+            mVideoPicturesDecoded++;
+
+            mStatDecodeUs += (SDL_GetPerformanceCounter() - mStatLastDecodeStart) * 1000000ULL / SDL_GetPerformanceFrequency();
+
+            if (!SyncSwsContext(mFrame->width, mFrame->height)) {
+                av_frame_unref(mFrame);
+                break;
+            }
+
             double pts = mCurrentTime;
             if (mFrame->pts != AV_NOPTS_VALUE) {
                 pts = mFrame->pts * av_q2d(mFormatCtx->streams[mVideoStreamIndex]->time_base);
@@ -1109,63 +1584,150 @@ void VideoDecoder::FrameWorkerLoop() {
                 }
             }
 
-            if (mSwsCtx) {
+            if (mUseNV12 && mFrame->buf[0] && mFrame->data[0] && mFrame->data[1]) {
+                DecodedVideoFrame readyFrame;
+                readyFrame.pixels = nullptr;
+                readyFrame.size = 0;
+                readyFrame.pitch = mFrame->linesize[0];
+                readyFrame.y = mFrame->data[0];
+                readyFrame.uv = mFrame->data[1];
+                readyFrame.hold = av_buffer_ref(mFrame->buf[0]);
+                readyFrame.pts = pts;
+                readyFrame.epoch = workerEpoch;
+
+                while (SDL_AtomicGet(&mFrameWorkerRunning) &&
+                       workerEpoch == SDL_AtomicGet(&mDecodeEpoch)) {
+                    bool slotFree;
+                    SDL_LockMutex(mPacketMutex);
+                    slotFree = HasReadyFrameRoom();
+                    SDL_UnlockMutex(mPacketMutex);
+                    if (slotFree) {
+                        break;
+                    }
+                    mStatWaitUs += (SDL_GetPerformanceCounter() - mStatLastDecodeStart) * 1000000ULL / SDL_GetPerformanceFrequency();
+                    SDL_UnlockMutex(mVideoDecodeMutex);
+                    SDL_Delay(kReadyQueueBackpressureDelayMs);
+                    SDL_LockMutex(mVideoDecodeMutex);
+                    mStatLastDecodeStart = SDL_GetPerformanceCounter();
+                }
+                if (workerEpoch == SDL_AtomicGet(&mDecodeEpoch)) {
+                    QueueReadyFrame(std::move(readyFrame));
+                } else {
+                    av_buffer_unref(&readyFrame.hold);
+                }
+            } else if (mSwsCtx) {
+                Uint64 scaleStart = SDL_GetPerformanceCounter();
+                uint8_t* target[4] = { nullptr };
+                int targetLinesize[4] = { 0 };
                 size_t numBytes = (size_t)av_image_get_buffer_size(
                     AV_PIX_FMT_RGBA, mWidth, mHeight, 1);
-                if (numBytes > mReadyBufSize) {
-                    if (mReadyBuf) {
-                        av_free(mReadyBuf);
-                    }
-                    mReadyBuf = (uint8_t*)av_malloc(numBytes);
-                    mReadyBufSize = mReadyBuf ? numBytes : 0;
-                }
-                if (mReadyBuf && mFrameRGB) {
-                    av_image_fill_arrays(mFrameRGB->data, mFrameRGB->linesize, mReadyBuf,
-                                         AV_PIX_FMT_RGBA, mWidth, mHeight, 1);
+
+                SDL_LockMutex(mPacketMutex);
+                uint8_t* targetBuffer = AcquireFrameBuffer(numBytes);
+                SDL_UnlockMutex(mPacketMutex);
+
+                if (targetBuffer) {
+                    av_image_fill_arrays(target, targetLinesize, targetBuffer,
+                                        AV_PIX_FMT_RGBA, mWidth, mHeight, 1);
 
                     int scaled = sws_scale(mSwsCtx,
                                           (const uint8_t* const*)mFrame->data,
                                           mFrame->linesize,
-                                          0,
-                                          mHeight,
-                                          mFrameRGB->data,
-                                          mFrameRGB->linesize);
+                                          0, mFrame->height,
+                                          target, targetLinesize);
+
+                    mStatScaleUs += (SDL_GetPerformanceCounter() - scaleStart) * 1000000ULL / SDL_GetPerformanceFrequency();
 
                     if (scaled > 0) {
                         DecodedVideoFrame readyFrame;
-                        readyFrame.pitch = mFrameRGB->linesize[0];
+                        readyFrame.pixels = targetBuffer;
+                        readyFrame.size = numBytes;
+                        readyFrame.pitch = targetLinesize[0];
+                        readyFrame.y = nullptr;
+                        readyFrame.uv = nullptr;
+                        readyFrame.hold = nullptr;
                         readyFrame.pts = pts;
                         readyFrame.epoch = workerEpoch;
-                        readyFrame.pixels.resize((size_t)readyFrame.pitch * (size_t)mHeight);
-                        SDL_memcpy(readyFrame.pixels.data(), mFrameRGB->data[0], readyFrame.pixels.size());
 
                         while (SDL_AtomicGet(&mFrameWorkerRunning) &&
                                workerEpoch == SDL_AtomicGet(&mDecodeEpoch)) {
                             bool slotFree;
                             SDL_LockMutex(mPacketMutex);
-                            slotFree = mReadyFrameQueue.size() < kMaxReadyFrames;
+                            slotFree = HasReadyFrameRoom();
                             SDL_UnlockMutex(mPacketMutex);
                             if (slotFree) {
                                 break;
                             }
+                            mStatWaitUs += (SDL_GetPerformanceCounter() - mStatLastDecodeStart) * 1000000ULL / SDL_GetPerformanceFrequency();
                             SDL_UnlockMutex(mVideoDecodeMutex);
                             SDL_Delay(kReadyQueueBackpressureDelayMs);
                             SDL_LockMutex(mVideoDecodeMutex);
+                            mStatLastDecodeStart = SDL_GetPerformanceCounter();
                         }
                         if (workerEpoch == SDL_AtomicGet(&mDecodeEpoch)) {
                             QueueReadyFrame(std::move(readyFrame));
+                        } else {
+                            SDL_LockMutex(mPacketMutex);
+                            RecycleFrameBuffer(readyFrame.pixels);
+                            SDL_UnlockMutex(mPacketMutex);
                         }
+                    } else {
+                        SDL_LockMutex(mPacketMutex);
+                        RecycleFrameBuffer(targetBuffer);
+                        SDL_UnlockMutex(mPacketMutex);
                     }
+                } else {
+                    mStatScaleUs += (SDL_GetPerformanceCounter() - scaleStart) * 1000000ULL / SDL_GetPerformanceFrequency();
                 }
             }
 
+            mStatFrames++;
             av_frame_unref(mFrame);
         }
 
         SDL_UnlockMutex(mVideoDecodeMutex);
+
+        ReportFrameWorkerStats(false);
     }
 
+    ReportFrameWorkerStats(true);
+
     WHBLogPrintf("[FRAME] Thread stopped");
+}
+
+void VideoDecoder::ReportFrameWorkerStats(bool finalReport) {
+    Uint64 now = SDL_GetPerformanceCounter();
+    Uint64 elapsed = now - mStatWindowStart;
+    if (!finalReport && elapsed < 2 * SDL_GetPerformanceFrequency()) {
+        return;
+    }
+    if (mStatWindowStart == 0) {
+        mStatWindowStart = now;
+        return;
+    }
+    if (mStatFrames == 0 && !finalReport) {
+        mStatWindowStart = now;
+        return;
+    }
+
+    double seconds = (double)elapsed / SDL_GetPerformanceFrequency();
+    double decode = (double)mStatDecodeUs / 1000.0;
+    double scale = (double)mStatScaleUs / 1000.0;
+    double wait = (double)mStatWaitUs / 1000.0;
+    WHBLogPrintf("[FRAME] %d pictures in %.1f s (%.1f/s, budget %.1f ms): decode %.1f ms, colour %.1f ms, waiting %.1f ms [%s]",
+                 mStatFrames, seconds, mStatFrames / (seconds > 0.0 ? seconds : 1.0),
+                 1000.0 / GetFrameRate(), mStatFrames ? decode / mStatFrames : 0.0,
+                 mStatFrames ? scale / mStatFrames : 0.0, mStatFrames ? wait / mStatFrames : 0.0,
+                 DecodeModeName(mDecodeMode));
+    WHBLogPrintf("[FRAME] presented %d so far: texture %p, useNV12 %d, y %08x uv %08x pitch %d",
+                 mPresentedCount, mPresentedTexture, mPresentedUseNV12,
+                 (unsigned) mPresentedY, (unsigned) mPresentedUV, mPresentedPitch);
+
+    mStatWindowStart = now;
+    mStatDecodeUs = 0;
+    mStatScaleUs = 0;
+    mStatWaitUs = 0;
+    mStatFrames = 0;
 }
 
 double VideoDecoder::GetFrameRate() const {
