@@ -40,8 +40,8 @@ ImageViewerScreen::ImageViewerScreen(const std::string& imagePath)
     
     WHBLogPrintf("Image loaded successfully: %dx%d", mImageWidth, mImageHeight);
 
-    int topBar = 60;
-    int bottomBar = 60;
+    int topBar = TOP_BAR_HEIGHT;
+    int bottomBar = BOTTOM_BAR_HEIGHT;
     int viewportW = Gfx::SCREEN_WIDTH;
     int viewportH = Gfx::SCREEN_HEIGHT - topBar - bottomBar;
     float scaleX = (float)viewportW / mImageWidth;
@@ -79,8 +79,8 @@ void ImageViewerScreen::Draw() {
     SDL_Rect dstRect;
     CalculateDisplayRect(dstRect);
 
-    int topBar = mBarsHidden ? 0 : 60;
-    int bottomBar = mBarsHidden ? 0 : 60;
+    int topBar = mBarsHidden ? 0 : Screen::TOP_BAR_HEIGHT;
+    int bottomBar = mBarsHidden ? 0 : Screen::BOTTOM_BAR_HEIGHT;
     SDL_Rect clip = {0, topBar, Gfx::SCREEN_WIDTH, Gfx::SCREEN_HEIGHT - topBar - bottomBar};
     SDL_RenderSetClipRect(Gfx::GetRenderer(), &clip);
 
@@ -150,8 +150,8 @@ bool ImageViewerScreen::Update(Input &input) {
     }
 
     // Clamp pan to image bounds
-    int topBar = mBarsHidden ? 0 : 60;
-    int bottomBar = mBarsHidden ? 0 : 60;
+    int topBar = mBarsHidden ? 0 : Screen::TOP_BAR_HEIGHT;
+    int bottomBar = mBarsHidden ? 0 : Screen::BOTTOM_BAR_HEIGHT;
     int viewportH = Gfx::SCREEN_HEIGHT - topBar - bottomBar;
     int drawW = (int)(mImageWidth * mFitScale * mZoom);
     int drawH = (int)(mImageHeight * mFitScale * mZoom);
@@ -177,8 +177,8 @@ void ImageViewerScreen::CalculateDisplayRect(SDL_Rect& rect) {
     int drawW = (int)(mImageWidth * scale);
     int drawH = (int)(mImageHeight * scale);
 
-    int topBar = mBarsHidden ? 0 : 60;
-    int bottomBar = mBarsHidden ? 0 : 60;
+    int topBar = mBarsHidden ? 0 : Screen::TOP_BAR_HEIGHT;
+    int bottomBar = mBarsHidden ? 0 : Screen::BOTTOM_BAR_HEIGHT;
     int viewportH = Gfx::SCREEN_HEIGHT - topBar - bottomBar;
     rect.x = ((int)Gfx::SCREEN_WIDTH - drawW) / 2 + (int)mOffsetX;
     rect.y = topBar + (viewportH - drawH) / 2 + (int)mOffsetY;

@@ -42,10 +42,18 @@ namespace Gfx {
     void DrawRectFilled(int x, int y, int w, int h, SDL_Color color);
     void DrawRectGradient(int x, int y, int w, int h, SDL_Color topColor, SDL_Color bottomColor);
     void DrawRectRounded(int x, int y, int w, int h, int radius, SDL_Color color);
+
+    void DrawPanel(int x, int y, int w, int h, int radius = 14, int borderWidth = 4);
+
+    void DrawRoundedOutline(int x, int y, int w, int h, int radius, SDL_Color color,
+                            int thickness, SDL_Color innerColor);
     void Print(int x, int y, int size, SDL_Color color, const std::string& text, AlignFlags align = ALIGN_LEFT | ALIGN_TOP);
     void PrintIcon(int x, int y, int size, SDL_Color color, const std::string& text, AlignFlags align = ALIGN_LEFT | ALIGN_TOP);
     void DrawFolderIcon(int x, int y, int size, SDL_Color color, AlignFlags align = ALIGN_LEFT | ALIGN_VERTICAL);
     void DrawFileIcon(int x, int y, int size, SDL_Color color, AlignFlags align = ALIGN_LEFT | ALIGN_VERTICAL);
+    void DrawDiscIcon(int x, int y, int size, SDL_Color color, AlignFlags align = ALIGN_LEFT | ALIGN_VERTICAL);
+    void DrawMusicIcon(int x, int y, int size, SDL_Color color, AlignFlags align = ALIGN_LEFT | ALIGN_VERTICAL);
+    void DrawPlayIcon(int x, int y, int size, SDL_Color color, AlignFlags align = ALIGN_LEFT | ALIGN_VERTICAL);
     int GetTextWidth(int size, const std::string& text);
     int GetIconTextWidth(int size, const std::string& text);
     int GetTextHeight(int size, const std::string& text);

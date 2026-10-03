@@ -7,6 +7,7 @@
 bool Settings::sFullFilesystemAccess = false;
 bool Settings::sFtpServerEnabled = false;
 bool Settings::sShowHiddenFiles = false;
+DateFormat Settings::sDateFormat = DateFormat::DayMonthYear;
 bool Settings::sInitialized = false;
 
 std::string Settings::GetSettingsPath() {
@@ -32,6 +33,7 @@ void Settings::Load() {
         WHBLogPrintf("Settings file not found, using defaults");
         sFullFilesystemAccess = false;
         sShowHiddenFiles = false;
+        sDateFormat = DateFormat::DayMonthYear;
         return;
     }
     
@@ -49,6 +51,13 @@ void Settings::Load() {
             std::string value = line.substr(18);
             sShowHiddenFiles = (value == "1" || value == "true");
             WHBLogPrintf("Loaded setting: show_hidden_files = %d", sShowHiddenFiles);
+        } else if (line.find("date_format=") == 0) {
+            std::string value = line.substr(12);
+            sDateFormat = (value == "0" || value == "mdy")
+                              ? DateFormat::MonthDayYear
+                              : DateFormat::DayMonthYear;
+            WHBLogPrintf("Loaded setting: date_format = %s",
+                         sDateFormat == DateFormat::DayMonthYear ? "DD/MM/YYYY" : "MM/DD/YYYY");
         }
     }
     
@@ -67,12 +76,15 @@ void Settings::Save() {
     file << "full_filesystem_access=" << (sFullFilesystemAccess ? "1" : "0") << std::endl;
     file << "ftp_server_enabled=" << (sFtpServerEnabled ? "1" : "0") << std::endl;
     file << "show_hidden_files=" << (sShowHiddenFiles ? "1" : "0") << std::endl;
+    file << "date_format=" << (sDateFormat == DateFormat::DayMonthYear ? "1" : "0") << std::endl;
     file.close();
 
     WHBLogPrintf("Settings saved successfully to: %s", settingsPath.c_str());
     WHBLogPrintf("  full_filesystem_access = %d", sFullFilesystemAccess);
     WHBLogPrintf("  ftp_server_enabled = %d", sFtpServerEnabled);
     WHBLogPrintf("  show_hidden_files = %d", sShowHiddenFiles);
+    WHBLogPrintf("  date_format = %s",
+                 sDateFormat == DateFormat::DayMonthYear ? "DD/MM/YYYY" : "MM/DD/YYYY");
 }
 
 bool Settings::GetFullFilesystemAccess() {
@@ -100,4 +112,13 @@ bool Settings::GetShowHiddenFiles() {
 
 void Settings::SetShowHiddenFiles(bool enabled) {
     sShowHiddenFiles = enabled;
+}
+
+DateFormat Settings::GetDateFormat() {
+    if (!sInitialized) Initialize();
+    return sDateFormat;
+}
+
+void Settings::SetDateFormat(DateFormat format) {
+    sDateFormat = format;
 }

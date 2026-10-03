@@ -344,13 +344,8 @@ void TextEditorScreen::DrawSaveModal() {
     int modalHeight = 400;
     int modalX = (Gfx::SCREEN_WIDTH - modalWidth) / 2;
     int modalY = (Gfx::SCREEN_HEIGHT - modalHeight) / 2;
-    int borderWidth = 4;
     
-    Gfx::DrawRectFilled(modalX, modalY, modalWidth, modalHeight, Gfx::COLOR_ALT_BACKGROUND);
-    Gfx::DrawRectFilled(modalX, modalY, modalWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED); // Top
-    Gfx::DrawRectFilled(modalX, modalY + modalHeight - borderWidth, modalWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED); // Bottom
-    Gfx::DrawRectFilled(modalX, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED); // Left
-    Gfx::DrawRectFilled(modalX + modalWidth - borderWidth, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED); // Right
+    Gfx::DrawPanel(modalX, modalY, modalWidth, modalHeight);
 
     Gfx::Print(modalX + modalWidth / 2, modalY + 50, 36, Gfx::COLOR_TEXT,
                "Save changes?", Gfx::ALIGN_CENTER);
@@ -379,7 +374,7 @@ void TextEditorScreen::DrawSaveModal() {
         optionY += optionHeight + 10;
     }
     
-    Gfx::Print(modalX + modalWidth / 2, modalY + modalHeight - 40, 28, 
+    Gfx::Print(modalX + modalWidth / 2, modalY + modalHeight - 40, 28,
                Gfx::COLOR_ALT_TEXT, "A: Select  B: Cancel",
                Gfx::ALIGN_CENTER);
 }

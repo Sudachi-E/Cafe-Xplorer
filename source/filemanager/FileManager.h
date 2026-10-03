@@ -5,7 +5,7 @@
 #include <functional>
 #include <ctime>
 
-static constexpr const char* DATE_TEXT_SAMPLE = "2026-09-28 12:35 PM";
+static constexpr const char* DATE_TEXT_SAMPLE = "2026-09-28 19:35 PM";
 
 struct FileEntry {
     std::string name;

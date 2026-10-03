@@ -122,6 +122,7 @@ namespace Gfx {
         }
 
         SDL_SetRenderDrawBlendMode(sRenderer, SDL_BLENDMODE_BLEND);
+        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
 
         if (OSGetSharedData(OS_SHAREDDATATYPE_FONT_STANDARD, 0, &sFontData, &sFontSize)) {
             sFont = GetFontForSize(32);
@@ -206,8 +207,16 @@ namespace Gfx {
 
     static constexpr int ICON_SS = 4;
 
+    enum class ShapeKind { Folder, File, Disc, Music, Play };
+
     static bool InRect(float u, float v, float x0, float y0, float x1, float y1) {
         return u >= x0 && u <= x1 && v >= y0 && v <= y1;
+    }
+
+    static bool InEllipse(float u, float v, float cx, float cy, float rx, float ry) {
+        const float dx = (u - cx) / rx;
+        const float dy = (v - cy) / ry;
+        return dx * dx + dy * dy <= 1.0f;
     }
 
     static bool FolderShape(float u, float v) {
@@ -226,7 +235,50 @@ namespace Gfx {
         return true;
     }
 
-    static SDL_Texture* BuildShapeTexture(int size, bool folder) {
+    static bool DiscShape(float u, float v) {
+        const float dx = u - 0.5f;
+        const float dy = v - 0.5f;
+        const float radius = std::sqrt(dx * dx + dy * dy);
+        if (radius > 0.47f) return false;
+        if (radius < 0.13f) return false;
+        if (radius > 0.38f && radius < 0.42f) return false;
+        return true;
+    }
+
+    static bool MusicShape(float u, float v) {
+        if (InEllipse(u, v, 0.30f, 0.72f, 0.22f, 0.16f)) return true;
+        if (InRect(u, v, 0.44f, 0.12f, 0.53f, 0.78f)) return true;
+        if (u >= 0.53f && u <= 0.88f) {
+            const float top = 0.12f + (u - 0.53f) * 0.571f;
+            const float bottom = 0.46f - (u - 0.53f) * 0.400f;
+            if (v >= top && v <= bottom) return true;
+        }
+        return false;
+    }
+
+    static bool PlayShape(float u, float v) {
+        constexpr float LEFT = 0.22f;
+        constexpr float RIGHT = 0.86f;
+        constexpr float TIP_Y = 0.50f;
+        if (u < LEFT || u > RIGHT) return false;
+
+        const float reach = (u - LEFT) / (RIGHT - LEFT);
+        const float halfHeight = 0.36f * (1.0f - reach);
+        return v >= TIP_Y - halfHeight && v <= TIP_Y + halfHeight;
+    }
+
+    static bool ShapeContains(ShapeKind kind, float u, float v) {
+        switch (kind) {
+            case ShapeKind::Folder: return FolderShape(u, v);
+            case ShapeKind::File:   return FileShape(u, v);
+            case ShapeKind::Disc:   return DiscShape(u, v);
+            case ShapeKind::Music:  return MusicShape(u, v);
+            case ShapeKind::Play:   return PlayShape(u, v);
+        }
+        return false;
+    }
+
+    static SDL_Texture* BuildShapeTexture(int size, ShapeKind kind) {
         const int res = size * ICON_SS;
         const int samples = ICON_SS * ICON_SS;
 
@@ -235,7 +287,7 @@ namespace Gfx {
             for (int px = 0; px < res; px++) {
                 float u = ((float)px + 0.5f) / (float)res;
                 float v = ((float)py + 0.5f) / (float)res;
-                if (folder ? FolderShape(u, v) : FileShape(u, v)) {
+                if (ShapeContains(kind, u, v)) {
                     coverage[py * res + px] = 0xff;
                 }
             }
@@ -265,13 +317,13 @@ namespace Gfx {
         return texture;
     }
 
-    static void DrawShapeIcon(int x, int y, int size, SDL_Color color, bool folder, AlignFlags align) {
+    static void DrawShapeIcon(int x, int y, int size, SDL_Color color, ShapeKind kind, AlignFlags align) {
         if (size <= 0) return;
 
-        auto key = std::make_pair(size, folder ? 0 : 1);
+        auto key = std::make_pair(size, static_cast<int>(kind));
         auto it = sShapeTextures.find(key);
         if (it == sShapeTextures.end()) {
-            SDL_Texture* texture = BuildShapeTexture(size, folder);
+            SDL_Texture* texture = BuildShapeTexture(size, kind);
             if (!texture) return;
             it = sShapeTextures.emplace(key, texture).first;
         }
@@ -290,11 +342,42 @@ namespace Gfx {
     }
 
     void DrawFolderIcon(int x, int y, int size, SDL_Color color, AlignFlags align) {
-        DrawShapeIcon(x, y, size, color, true, align);
+        DrawShapeIcon(x, y, size, color, ShapeKind::Folder, align);
     }
 
     void DrawFileIcon(int x, int y, int size, SDL_Color color, AlignFlags align) {
-        DrawShapeIcon(x, y, size, color, false, align);
+        DrawShapeIcon(x, y, size, color, ShapeKind::File, align);
+    }
+
+    void DrawDiscIcon(int x, int y, int size, SDL_Color color, AlignFlags align) {
+        DrawShapeIcon(x, y, size, color, ShapeKind::Disc, align);
+    }
+
+    void DrawMusicIcon(int x, int y, int size, SDL_Color color, AlignFlags align) {
+        DrawShapeIcon(x, y, size, color, ShapeKind::Music, align);
+    }
+
+    void DrawPlayIcon(int x, int y, int size, SDL_Color color, AlignFlags align) {
+        DrawShapeIcon(x, y, size, color, ShapeKind::Play, align);
+    }
+
+    void DrawPanel(int x, int y, int w, int h, int radius, int borderWidth) {
+        DrawRectRounded(x, y, w, h, radius, COLOR_HIGHLIGHTED);
+
+        const int innerRadius = radius - borderWidth;
+        DrawRectRounded(x + borderWidth, y + borderWidth,
+                        w - 2 * borderWidth, h - 2 * borderWidth,
+                        innerRadius > 0 ? innerRadius : 0, COLOR_ALT_BACKGROUND);
+    }
+
+    void DrawRoundedOutline(int x, int y, int w, int h, int radius, SDL_Color color,
+                            int thickness, SDL_Color innerColor) {
+        DrawRectRounded(x, y, w, h, radius, color);
+
+        const int innerRadius = radius - thickness;
+        DrawRectRounded(x + thickness, y + thickness,
+                        w - 2 * thickness, h - 2 * thickness,
+                        innerRadius > 0 ? innerRadius : 0, innerColor);
     }
 
     void Print(int x, int y, int size, SDL_Color color, const std::string& text, AlignFlags align) {

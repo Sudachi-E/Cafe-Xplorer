@@ -154,11 +154,7 @@ void FileManagerScreen::Draw() {
             SDL_Color iconColor = isSelected ? Gfx::COLOR_WHITE : (entry.isHidden ? Gfx::COLOR_HIDDEN : Gfx::COLOR_WHITE);
             SDL_Color detailColor = isSelected ? Gfx::COLOR_WHITE : (entry.isHidden ? Gfx::COLOR_HIDDEN : Gfx::COLOR_WHITE);
 
-            if (entry.isDirectory) {
-                Gfx::DrawFolderIcon(iconX, y + itemHeight / 2, 40, iconColor, Gfx::ALIGN_LEFT | Gfx::ALIGN_VERTICAL);
-            } else {
-                Gfx::DrawFileIcon(iconX, y + itemHeight / 2, 40, iconColor, Gfx::ALIGN_LEFT | Gfx::ALIGN_VERTICAL);
-            }
+            DrawEntryIcon(entry, iconX, y + itemHeight / 2, 40, iconColor);
 
             Gfx::Print(textX, y + 20, NAME_FONT_SIZE, nameColor,
                        Gfx::TruncateToWidth(entry.displayName, NAME_FONT_SIZE, DATE_COLUMN_X - 30 - dateColumnWidth - textX),
@@ -743,19 +739,30 @@ bool FileManagerScreen::IsWUHBFile(const std::string& filename) {
     return lower.ends_with(".wuhb");
 }
 
+void FileManagerScreen::DrawEntryIcon(const FileEntry& entry, int x, int y, int size, SDL_Color color) {
+    const Gfx::AlignFlags align = Gfx::ALIGN_LEFT | Gfx::ALIGN_VERTICAL;
+
+    if (entry.isDirectory) {
+        Gfx::DrawFolderIcon(x, y, size, color, align);
+    } else if (IsRPXFile(entry.name) || IsWUHBFile(entry.name)) {
+        Gfx::DrawDiscIcon(x, y, size, color, align);
+    } else if (IsVideoFile(entry.name)) {
+        Gfx::DrawPlayIcon(x, y, size, color, align);
+    } else if (IsAudioFile(entry.name)) {
+        Gfx::DrawMusicIcon(x, y, size, color, align);
+    } else {
+        Gfx::DrawFileIcon(x, y, size, color, align);
+    }
+}
+
 void FileManagerScreen::DrawContextMenu() {
     int menuWidth = 400;
     int optionCount = mSelectionMode ? 5 : 8;
     int menuHeight = 80 + optionCount * 60;
     int menuX = Gfx::SCREEN_WIDTH - menuWidth - 50;
     int menuY = (Gfx::SCREEN_HEIGHT - menuHeight) / 2;
-    int borderWidth = 3;
     
-    Gfx::DrawRectFilled(menuX, menuY, menuWidth, menuHeight, Gfx::COLOR_ALT_BACKGROUND);
-    Gfx::DrawRectFilled(menuX, menuY, menuWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED);
-    Gfx::DrawRectFilled(menuX, menuY + menuHeight - borderWidth, menuWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED);
-    Gfx::DrawRectFilled(menuX, menuY, borderWidth, menuHeight, Gfx::COLOR_HIGHLIGHTED);
-    Gfx::DrawRectFilled(menuX + menuWidth - borderWidth, menuY, borderWidth, menuHeight, Gfx::COLOR_HIGHLIGHTED);
+    Gfx::DrawPanel(menuX, menuY, menuWidth, menuHeight);
     
     if (mSelectionMode) {
         Gfx::Print(menuX + menuWidth / 2, menuY + 15, 26,
@@ -855,8 +862,8 @@ void FileManagerScreen::DrawContextMenu() {
                    "Delete", Gfx::ALIGN_CENTER);
     }
     
-    Gfx::Print(menuX + menuWidth / 2, menuY + menuHeight - 30, 22,
-               Gfx::COLOR_WHITE, "A: Select  B: Cancel", Gfx::ALIGN_CENTER);
+    DrawCenteredHints("A: Select  B: Cancel", menuX + menuWidth / 2,
+                      menuY + menuHeight - 30, 30, 22);
 }
 
 void FileManagerScreen::CreateNewFile(const std::string& filename) {
@@ -892,13 +899,8 @@ void FileManagerScreen::DrawDeletionModal() {
     int modalHeight = 200;
     int modalX = (Gfx::SCREEN_WIDTH - modalWidth) / 2;
     int modalY = (Gfx::SCREEN_HEIGHT - modalHeight) / 2;
-    int borderWidth = 4;
     
-    Gfx::DrawRectFilled(modalX, modalY, modalWidth, modalHeight, Gfx::COLOR_ALT_BACKGROUND);
-    Gfx::DrawRectFilled(modalX, modalY, modalWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED); // Top
-    Gfx::DrawRectFilled(modalX, modalY + modalHeight - borderWidth, modalWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED); // Bottom
-    Gfx::DrawRectFilled(modalX, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED); // Left
-    Gfx::DrawRectFilled(modalX + modalWidth - borderWidth, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED); // Right
+    Gfx::DrawPanel(modalX, modalY, modalWidth, modalHeight);
     
     std::string message = "Deleting " + mDeletionFileName;
     Gfx::Print(modalX + modalWidth / 2, modalY + modalHeight / 2 - 30, 30,
@@ -915,13 +917,8 @@ void FileManagerScreen::DrawDeleteConfirmModal() {
     int modalHeight = 280;
     int modalX = (Gfx::SCREEN_WIDTH - modalWidth) / 2;
     int modalY = (Gfx::SCREEN_HEIGHT - modalHeight) / 2;
-    int borderWidth = 4;
     
-    Gfx::DrawRectFilled(modalX, modalY, modalWidth, modalHeight, Gfx::COLOR_ALT_BACKGROUND);
-    Gfx::DrawRectFilled(modalX, modalY, modalWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED);
-    Gfx::DrawRectFilled(modalX, modalY + modalHeight - borderWidth, modalWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED);
-    Gfx::DrawRectFilled(modalX, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED);
-    Gfx::DrawRectFilled(modalX + modalWidth - borderWidth, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED);
+    Gfx::DrawPanel(modalX, modalY, modalWidth, modalHeight);
     
     std::string confirmLine = mPendingDeletePaths.size() > 1
         ? "Are you sure you want to delete the selected files?"
@@ -966,13 +963,8 @@ void FileManagerScreen::DrawLoadingModal() {
     int modalHeight = 200;
     int modalX = (Gfx::SCREEN_WIDTH - modalWidth) / 2;
     int modalY = (Gfx::SCREEN_HEIGHT - modalHeight) / 2;
-    int borderWidth = 4;
     
-    Gfx::DrawRectFilled(modalX, modalY, modalWidth, modalHeight, Gfx::COLOR_ALT_BACKGROUND);
-    Gfx::DrawRectFilled(modalX, modalY, modalWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED); // Top
-    Gfx::DrawRectFilled(modalX, modalY + modalHeight - borderWidth, modalWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED); // Bottom
-    Gfx::DrawRectFilled(modalX, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED); // Left
-    Gfx::DrawRectFilled(modalX + modalWidth - borderWidth, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED); // Right
+    Gfx::DrawPanel(modalX, modalY, modalWidth, modalHeight);
     
     Gfx::Print(modalX + modalWidth / 2, modalY + modalHeight / 2 - 30, 30,
                Gfx::COLOR_WHITE, "Loading Directory", Gfx::ALIGN_CENTER);
@@ -988,13 +980,8 @@ void FileManagerScreen::DrawCopyProgressModal() {
     int modalHeight = 280;
     int modalX = (Gfx::SCREEN_WIDTH  - modalWidth)  / 2;
     int modalY = (Gfx::SCREEN_HEIGHT - modalHeight) / 2;
-    int borderWidth = 4;
 
-    Gfx::DrawRectFilled(modalX, modalY, modalWidth, modalHeight, Gfx::COLOR_ALT_BACKGROUND);
-    Gfx::DrawRectFilled(modalX,                          modalY,                           modalWidth,  borderWidth,  Gfx::COLOR_HIGHLIGHTED); // Top
-    Gfx::DrawRectFilled(modalX,                          modalY + modalHeight - borderWidth, modalWidth,  borderWidth,  Gfx::COLOR_HIGHLIGHTED); // Bottom
-    Gfx::DrawRectFilled(modalX,                          modalY,                           borderWidth, modalHeight,  Gfx::COLOR_HIGHLIGHTED); // Left
-    Gfx::DrawRectFilled(modalX + modalWidth - borderWidth, modalY,                         borderWidth, modalHeight,  Gfx::COLOR_HIGHLIGHTED); // Right
+    Gfx::DrawPanel(modalX, modalY, modalWidth, modalHeight);
 
     std::string title = mClipboardIsMove ? "Moving" : "Copying";
     Gfx::Print(modalX + modalWidth / 2, modalY + 40, 30,
@@ -1082,13 +1069,8 @@ void FileManagerScreen::DrawLaunchConfirmModal() {
     int modalHeight = 300;
     int modalX = (Gfx::SCREEN_WIDTH - modalWidth) / 2;
     int modalY = (Gfx::SCREEN_HEIGHT - modalHeight) / 2;
-    int borderWidth = 4;
     
-    Gfx::DrawRectFilled(modalX, modalY, modalWidth, modalHeight, Gfx::COLOR_ALT_BACKGROUND);
-    Gfx::DrawRectFilled(modalX, modalY, modalWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED);
-    Gfx::DrawRectFilled(modalX, modalY + modalHeight - borderWidth, modalWidth, borderWidth, Gfx::COLOR_HIGHLIGHTED);
-    Gfx::DrawRectFilled(modalX, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED);
-    Gfx::DrawRectFilled(modalX + modalWidth - borderWidth, modalY, borderWidth, modalHeight, Gfx::COLOR_HIGHLIGHTED);
+    Gfx::DrawPanel(modalX, modalY, modalWidth, modalHeight);
     
     std::string message = "Are you sure you want to open";
     Gfx::Print(modalX + modalWidth / 2, modalY + 60, 28,

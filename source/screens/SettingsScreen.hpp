@@ -1,6 +1,7 @@
 #pragma once
 #include "Screen.hpp"
 #include "../input/Input.h"
+#include "../utils/Settings.hpp"
 #include <string>
 
 class SettingsScreen : public Screen {
@@ -21,6 +22,7 @@ private:
     bool mFullFilesystemAccess;
     bool mFtpServerEnabled;
     bool mShowHiddenFiles;
+    DateFormat mDateFormat;
     bool mShowFtpResult;
     int mFtpModalOption;
     std::string mFtpResultIP;
@@ -28,6 +30,7 @@ private:
     void ToggleFullFilesystemAccess();
     void ToggleFtpServer();
     void ToggleShowHiddenFiles();
+    void ToggleDateFormat();
     void SaveSettings();
     void LoadSettings();
 };

@@ -15,6 +15,7 @@ public:
     bool ShouldClose() const { return mShouldClose; }
     
 private:
+    void DrawOverlayUI();
     void DrawPlaybackControls();
     void CalculateDisplayRect(SDL_Rect& rect);
     void UpdatePlayback();

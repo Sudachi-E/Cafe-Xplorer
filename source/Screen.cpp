@@ -124,25 +124,40 @@ static int DrawHints(const std::vector<HintEntry>& hints,
     return x;
 }
 
+void Screen::DrawCenteredHints(const char *hint, int centerX, int y,
+                               int iconSize, int textSize) {
+    if (!hint || hint[0] == '\0') return;
+
+    constexpr int GAP     = 6;
+    constexpr int SPACING = 28;
+
+    std::vector<HintEntry> hints = ParseHints(hint);
+    int width = MeasureHints(hints, iconSize, textSize, GAP, SPACING);
+    DrawHints(hints, centerX - width / 2, y, iconSize, textSize, GAP, SPACING);
+}
+
 void Screen::DrawTopBar(const char *title) {
     constexpr int TITLE_SIZE = 35;
     constexpr int CLOCK_SIZE = 30;
     constexpr int MARGIN     = 40;
 
-    Gfx::DrawRectFilled(0, 0, Gfx::SCREEN_WIDTH, 80, Gfx::COLOR_BARS);
-
-    Gfx::DrawRectFilled(0, 77, Gfx::SCREEN_WIDTH, 3, Gfx::COLOR_ACCENT);
+    Gfx::DrawRectFilled(0, 0, Gfx::SCREEN_WIDTH, TOP_BAR_HEIGHT, Gfx::COLOR_BARS);
+    Gfx::DrawRectFilled(0, TOP_BAR_HEIGHT - 3, Gfx::SCREEN_WIDTH, 3, Gfx::COLOR_ACCENT);
 
     static bool clockValid = false;
+    static bool lastClockDayFirst = false;
     static struct tm lastShown = {};
     static std::string clockText;
     struct tm now = GetConsoleLocalTime();
-    if (!clockValid || now.tm_min != lastShown.tm_min || now.tm_hour != lastShown.tm_hour ||
+    const bool dayFirst = (Settings::GetDateFormat() == DateFormat::DayMonthYear);
+    if (!clockValid || dayFirst != lastClockDayFirst ||
+        now.tm_min != lastShown.tm_min || now.tm_hour != lastShown.tm_hour ||
         now.tm_mday != lastShown.tm_mday || now.tm_mon != lastShown.tm_mon ||
         now.tm_year != lastShown.tm_year) {
         clockValid = true;
+        lastClockDayFirst = dayFirst;
         lastShown = now;
-        clockText = FormatCalendarTime(now);
+        clockText = FormatCalendarTime(now, true);
     }
 
     sTopBarClockLeft = static_cast<int>(Gfx::SCREEN_WIDTH) - MARGIN -
@@ -158,8 +173,8 @@ void Screen::DrawTopBar(const char *title) {
 }
 
 void Screen::DrawBottomBar(const char *leftHint, const char *centerHint, const char *rightHint) {
-    constexpr int BAR_Y    = Gfx::SCREEN_HEIGHT - 80;
-    constexpr int BAR_H    = 80;
+    constexpr int BAR_Y    = Gfx::SCREEN_HEIGHT - BOTTOM_BAR_HEIGHT;
+    constexpr int BAR_H    = BOTTOM_BAR_HEIGHT;
     constexpr int MID_Y    = Gfx::SCREEN_HEIGHT - 40;
     constexpr int ICON_SZ  = 34;
     constexpr int TXT_SZ   = 26;

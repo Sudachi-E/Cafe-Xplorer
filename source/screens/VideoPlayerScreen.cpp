@@ -30,24 +30,11 @@ VideoPlayerScreen::~VideoPlayerScreen() {
 
 void VideoPlayerScreen::Draw() {
     Gfx::Clear(Gfx::COLOR_BLACK);
-    
-    if (mShowTopBar) {
-        size_t slash = mVideoPath.find_last_of('/');
-        std::string filename = (slash != std::string::npos)
-                               ? mVideoPath.substr(slash + 1) : mVideoPath;
-        DrawTopBar(filename.c_str());
-    }
-    if (mShowUI) {
-        DrawBottomBar("B: Back", "A: Play/Pause", "L/R: Seek");
-    }
-    if (mShowSeekbar) {
-        DrawPlaybackControls();
-    }
-    
+
     if (!mInitialized && !mLoadError) {
         InitializeVideo();
     }
-    
+
     if (mShowRawVideoWarning) {
         Gfx::Clear(Gfx::COLOR_BLACK);
         
@@ -60,6 +47,7 @@ void VideoPlayerScreen::Draw() {
         Gfx::Print(centerX, centerY + 40, 24, Gfx::COLOR_ALT_TEXT,
                    "Press B to go back", Gfx::ALIGN_CENTER);
         
+        DrawOverlayUI();
         return;
     }
     
@@ -99,12 +87,14 @@ void VideoPlayerScreen::Draw() {
                    Gfx::COLOR_WHITE, "Failed to load video", Gfx::ALIGN_CENTER);
         Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 + 60, 28,
                    Gfx::COLOR_ALT_TEXT, errorMsg, Gfx::ALIGN_CENTER);
+        DrawOverlayUI();
         return;
     }
     
     if (!mVideoTexture) {
         Gfx::Print(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2, 30,
                    Gfx::COLOR_WHITE, "Loading video...", Gfx::ALIGN_CENTER);
+        DrawOverlayUI();
         return;
     }
     
@@ -112,6 +102,8 @@ void VideoPlayerScreen::Draw() {
     CalculateDisplayRect(dstRect);
     
     SDL_RenderCopy(Gfx::GetRenderer(), mVideoTexture, nullptr, &dstRect);
+
+    DrawOverlayUI();
 }
 
 bool VideoPlayerScreen::Update(Input &input) {
@@ -240,6 +232,21 @@ bool VideoPlayerScreen::Update(Input &input) {
     return true;
 }
 
+void VideoPlayerScreen::DrawOverlayUI() {
+    if (mShowTopBar) {
+        size_t slash = mVideoPath.find_last_of('/');
+        std::string filename = (slash != std::string::npos)
+                               ? mVideoPath.substr(slash + 1) : mVideoPath;
+        DrawTopBar(filename.c_str());
+    }
+    if (mShowUI) {
+        DrawBottomBar("B: Back", "A: Play/Pause", "L/R: Seek");
+    }
+    if (mShowSeekbar) {
+        DrawPlaybackControls();
+    }
+}
+
 void VideoPlayerScreen::DrawPlaybackControls() {
     
     double displayTime = (mIsPlaying && !mIsPaused) ? mDecoder.GetCurrentTime() : mPlaybackStartPTS;
@@ -247,16 +254,19 @@ void VideoPlayerScreen::DrawPlaybackControls() {
         displayTime = 0.0;
     }
 
+    const int uiBottom = mShowUI ? Screen::BOTTOM_BAR_HEIGHT : 0;
+    const int barY = static_cast<int>(Gfx::SCREEN_HEIGHT) - uiBottom - 30;
+    const int timeY = barY - 26;
+
     char timeStr[64];
     snprintf(timeStr, sizeof(timeStr), "%.1f / %.1f s",
              displayTime, mDecoder.GetDuration());
-    Gfx::Print(Gfx::SCREEN_WIDTH - 40, Gfx::SCREEN_HEIGHT - 100, 26,
-               Gfx::COLOR_WHITE, timeStr, Gfx::ALIGN_RIGHT);
+    Gfx::Print(Gfx::SCREEN_WIDTH - 40, timeY, 26,
+               Gfx::COLOR_WHITE, timeStr, Gfx::ALIGN_RIGHT | Gfx::ALIGN_VERTICAL);
 
     int barWidth = Gfx::SCREEN_WIDTH - 80;
     int barHeight = 8;
     int barX = 40;
-    int barY = Gfx::SCREEN_HEIGHT - 140;
 
     SDL_Rect bgRect = {barX, barY, barWidth, barHeight};
     SDL_SetRenderDrawColor(Gfx::GetRenderer(), 60, 60, 60, 255);
@@ -272,26 +282,21 @@ void VideoPlayerScreen::DrawPlaybackControls() {
 
 void VideoPlayerScreen::CalculateDisplayRect(SDL_Rect& rect) {
     float videoAspect = static_cast<float>(mVideoWidth) / static_cast<float>(mVideoHeight);
-    
-    int topBarH = mShowTopBar ? 60 : 0;
-    int bottomH = 0;
-    if (mShowSeekbar) bottomH = 140;
-    else if (mShowUI) bottomH = 60;
-    int viewportHeight = Gfx::SCREEN_HEIGHT - topBarH - bottomH;
-    int viewportWidth = Gfx::SCREEN_WIDTH;
-    int viewportY = topBarH;
+
+    const int viewportWidth = static_cast<int>(Gfx::SCREEN_WIDTH);
+    const int viewportHeight = static_cast<int>(Gfx::SCREEN_HEIGHT);
     float viewportAspect = static_cast<float>(viewportWidth) / static_cast<float>(viewportHeight);
-    
+
     if (videoAspect > viewportAspect) {
         rect.w = viewportWidth;
         rect.h = static_cast<int>(viewportWidth / videoAspect);
         rect.x = 0;
-        rect.y = viewportY + (viewportHeight - rect.h) / 2;
+        rect.y = (viewportHeight - rect.h) / 2;
     } else {
         rect.h = viewportHeight;
         rect.w = static_cast<int>(viewportHeight * videoAspect);
         rect.x = (viewportWidth - rect.w) / 2;
-        rect.y = viewportY;
+        rect.y = 0;
     }
 }
 

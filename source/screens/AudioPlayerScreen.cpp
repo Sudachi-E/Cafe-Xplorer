@@ -75,15 +75,8 @@ void AudioPlayerScreen::Draw() {
         return;
     }
 
-    // Speaker icon
-    int centerX = Gfx::SCREEN_WIDTH / 2;
-    int centerY = Gfx::SCREEN_HEIGHT / 2 - 50;
-    SDL_Renderer* renderer = Gfx::GetRenderer();
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-    SDL_Rect stem = {centerX - 5, centerY - 80, 10, 100};
-    SDL_RenderFillRect(renderer, &stem);
-    SDL_Rect head = {centerX - 25, centerY + 10, 40, 30};
-    SDL_RenderFillRect(renderer, &head);
+    Gfx::DrawMusicIcon(Gfx::SCREEN_WIDTH / 2, Gfx::SCREEN_HEIGHT / 2 - 90, 180,
+                       Gfx::COLOR_WHITE, Gfx::ALIGN_CENTER);
 
     DrawPlaybackControls();
 }

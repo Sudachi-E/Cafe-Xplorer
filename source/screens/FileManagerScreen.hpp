@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Screen.hpp"
+#include "../Gfx.hpp"
 #include "../filemanager/FileManager.h"
 #include <memory>
 #include <set>
@@ -76,6 +77,7 @@ private:
     static bool IsAudioFile(const std::string& filename);
     static bool IsRPXFile(const std::string& filename);
     static bool IsWUHBFile(const std::string& filename);
+    static void DrawEntryIcon(const FileEntry& entry, int x, int y, int size, SDL_Color color);
     void DrawContextMenu();
     void DrawDeletionModal();
     void DrawDeleteConfirmModal();

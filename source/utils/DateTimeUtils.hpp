@@ -6,20 +6,32 @@
 #include <sstream>
 #include <string>
 
-inline std::string FormatCalendarTime(const struct tm& time) {
-    int hour12 = time.tm_hour % 12;
-    if (hour12 == 0) {
-        hour12 = 12;
+#include "Settings.hpp"
+
+inline const char* WeekdayAbbreviation(int dayOfWeek) {
+    static const char* const names[7] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+    if (dayOfWeek < 0 || dayOfWeek > 6) {
+        return "---";
     }
+    return names[dayOfWeek];
+}
+
+inline std::string FormatCalendarTime(const struct tm& time, bool includeWeekday = false) {
+    const bool dayFirst = (Settings::GetDateFormat() == DateFormat::DayMonthYear);
+    const int first  = dayFirst ? time.tm_mday : time.tm_mon + 1;
+    const int second = dayFirst ? time.tm_mon + 1 : time.tm_mday;
 
     std::ostringstream oss;
     oss << std::setfill('0')
-        << std::setw(4) << time.tm_year + 1900 << '-'
-        << std::setw(2) << time.tm_mon + 1 << '-'
-        << std::setw(2) << time.tm_mday << ' '
-        << std::setw(2) << hour12 << ':'
+        << std::setw(2) << first << '/'
+        << std::setw(2) << second << '/'
+        << std::setw(4) << time.tm_year + 1900 << ' '
+        << std::setw(2) << time.tm_hour << ':'
         << std::setw(2) << time.tm_min << ' '
         << (time.tm_hour < 12 ? "AM" : "PM");
+    if (includeWeekday) {
+        oss << " (" << WeekdayAbbreviation(time.tm_wday) << ')';
+    }
     return oss.str();
 }
 
