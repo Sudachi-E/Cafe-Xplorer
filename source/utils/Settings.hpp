@@ -6,6 +6,11 @@ enum class DateFormat {
     MonthDayYear,
 };
 
+enum class KeyboardType {
+    System,
+    Custom,
+};
+
 class Settings {
 public:
     static void Initialize();
@@ -20,12 +25,15 @@ public:
     static void SetShowHiddenFiles(bool enabled);
     static DateFormat GetDateFormat();
     static void SetDateFormat(DateFormat format);
+    static KeyboardType GetKeyboardType();
+    static void SetKeyboardType(KeyboardType type);
     
 private:
     static bool sFullFilesystemAccess;
     static bool sFtpServerEnabled;
     static bool sShowHiddenFiles;
     static DateFormat sDateFormat;
+    static KeyboardType sKeyboardType;
     static bool sInitialized;
     static std::string GetSettingsPath();
     static std::string GetSavePath();

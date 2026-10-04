@@ -8,6 +8,7 @@ bool Settings::sFullFilesystemAccess = false;
 bool Settings::sFtpServerEnabled = false;
 bool Settings::sShowHiddenFiles = false;
 DateFormat Settings::sDateFormat = DateFormat::DayMonthYear;
+KeyboardType Settings::sKeyboardType = KeyboardType::System;
 bool Settings::sInitialized = false;
 
 std::string Settings::GetSettingsPath() {
@@ -34,6 +35,7 @@ void Settings::Load() {
         sFullFilesystemAccess = false;
         sShowHiddenFiles = false;
         sDateFormat = DateFormat::DayMonthYear;
+        sKeyboardType = KeyboardType::System;
         return;
     }
     
@@ -58,6 +60,13 @@ void Settings::Load() {
                               : DateFormat::DayMonthYear;
             WHBLogPrintf("Loaded setting: date_format = %s",
                          sDateFormat == DateFormat::DayMonthYear ? "DD/MM/YYYY" : "MM/DD/YYYY");
+        } else if (line.find("keyboard_type=") == 0) {
+            std::string value = line.substr(14);
+            sKeyboardType = (value == "1" || value == "custom")
+                              ? KeyboardType::Custom
+                              : KeyboardType::System;
+            WHBLogPrintf("Loaded setting: keyboard_type = %s",
+                         sKeyboardType == KeyboardType::Custom ? "Custom" : "System");
         }
     }
     
@@ -77,6 +86,7 @@ void Settings::Save() {
     file << "ftp_server_enabled=" << (sFtpServerEnabled ? "1" : "0") << std::endl;
     file << "show_hidden_files=" << (sShowHiddenFiles ? "1" : "0") << std::endl;
     file << "date_format=" << (sDateFormat == DateFormat::DayMonthYear ? "1" : "0") << std::endl;
+    file << "keyboard_type=" << (sKeyboardType == KeyboardType::Custom ? "1" : "0") << std::endl;
     file.close();
 
     WHBLogPrintf("Settings saved successfully to: %s", settingsPath.c_str());
@@ -85,6 +95,8 @@ void Settings::Save() {
     WHBLogPrintf("  show_hidden_files = %d", sShowHiddenFiles);
     WHBLogPrintf("  date_format = %s",
                  sDateFormat == DateFormat::DayMonthYear ? "DD/MM/YYYY" : "MM/DD/YYYY");
+    WHBLogPrintf("  keyboard_type = %s",
+                 sKeyboardType == KeyboardType::Custom ? "Custom" : "System");
 }
 
 bool Settings::GetFullFilesystemAccess() {
@@ -121,4 +133,13 @@ DateFormat Settings::GetDateFormat() {
 
 void Settings::SetDateFormat(DateFormat format) {
     sDateFormat = format;
+}
+
+KeyboardType Settings::GetKeyboardType() {
+    if (!sInitialized) Initialize();
+    return sKeyboardType;
+}
+
+void Settings::SetKeyboardType(KeyboardType type) {
+    sKeyboardType = type;
 }

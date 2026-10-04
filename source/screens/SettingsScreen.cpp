@@ -5,7 +5,7 @@
 #include <whb/log.h>
 
 static constexpr int CARD_W       = 860;
-static constexpr int CARD_H       = 500;
+static constexpr int CARD_H       = 610;
 static constexpr int CARD_RADIUS  = 20;
 static constexpr int ROW_H        = 90;
 static constexpr int ROW_RADIUS   = 12;
@@ -36,6 +36,7 @@ SettingsScreen::SettingsScreen()
     , mFtpServerEnabled(false)
     , mShowHiddenFiles(false)
     , mDateFormat(DateFormat::DayMonthYear)
+    , mKeyboardType(KeyboardType::System)
     , mShowFtpResult(false)
     , mFtpModalOption(0)
 {
@@ -47,6 +48,7 @@ void SettingsScreen::LoadSettings() {
     mFtpServerEnabled = Settings::GetFtpServerEnabled();
     mShowHiddenFiles = Settings::GetShowHiddenFiles();
     mDateFormat = Settings::GetDateFormat();
+    mKeyboardType = Settings::GetKeyboardType();
 }
 
 void SettingsScreen::SaveSettings() {
@@ -54,11 +56,13 @@ void SettingsScreen::SaveSettings() {
     Settings::SetFtpServerEnabled(mFtpServerEnabled);
     Settings::SetShowHiddenFiles(mShowHiddenFiles);
     Settings::SetDateFormat(mDateFormat);
+    Settings::SetKeyboardType(mKeyboardType);
     Settings::Save();
     mSettingsChanged = true;
-    WHBLogPrintf("Settings saved: full_filesystem_access=%d ftp_server_enabled=%d show_hidden_files=%d date_format=%s",
+    WHBLogPrintf("Settings saved: full_filesystem_access=%d ftp_server_enabled=%d show_hidden_files=%d date_format=%s keyboard_type=%s",
                  mFullFilesystemAccess, mFtpServerEnabled, mShowHiddenFiles,
-                 mDateFormat == DateFormat::DayMonthYear ? "DD/MM/YYYY" : "MM/DD/YYYY");
+                 mDateFormat == DateFormat::DayMonthYear ? "DD/MM/YYYY" : "MM/DD/YYYY",
+                 mKeyboardType == KeyboardType::Custom ? "Custom" : "System");
 }
 
 void SettingsScreen::ToggleFullFilesystemAccess() {
@@ -79,6 +83,15 @@ void SettingsScreen::ToggleDateFormat() {
                       : DateFormat::DayMonthYear;
     WHBLogPrintf("Toggled date format: %s",
                  mDateFormat == DateFormat::DayMonthYear ? "DD/MM/YYYY" : "MM/DD/YYYY");
+    SaveSettings();
+}
+
+void SettingsScreen::ToggleKeyboardType() {
+    mKeyboardType = (mKeyboardType == KeyboardType::System)
+                      ? KeyboardType::Custom
+                      : KeyboardType::System;
+    WHBLogPrintf("Toggled keyboard type: %s",
+                 mKeyboardType == KeyboardType::Custom ? "Custom" : "System");
     SaveSettings();
 }
 
@@ -163,6 +176,11 @@ void SettingsScreen::Draw() {
           mDateFormat == DateFormat::DayMonthYear,
           "",
           mDateFormat == DateFormat::DayMonthYear ? "DD/MM/YYYY" : "MM/DD/YYYY" },
+        { "Keyboard",
+          "On-screen keyboard used for typing names",
+          mKeyboardType == KeyboardType::Custom,
+          "",
+          mKeyboardType == KeyboardType::Custom ? "Custom" : "System" },
     };
     const int rowCount = static_cast<int>(sizeof(rows) / sizeof(rows[0]));
 
@@ -274,7 +292,7 @@ bool SettingsScreen::Update(Input& input) {
         return true;
     }
 
-    constexpr int OPTION_COUNT = 4;
+    constexpr int OPTION_COUNT = 5;
 
     if (input.data.buttons_d & Input::BUTTON_DOWN) {
         mSelectedOption = (mSelectedOption + 1) % OPTION_COUNT;
@@ -292,6 +310,8 @@ bool SettingsScreen::Update(Input& input) {
             ToggleShowHiddenFiles();
         } else if (mSelectedOption == 3) {
             ToggleDateFormat();
+        } else if (mSelectedOption == 4) {
+            ToggleKeyboardType();
         }
     }
 

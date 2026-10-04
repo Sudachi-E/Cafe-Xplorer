@@ -23,6 +23,7 @@ private:
     bool mFtpServerEnabled;
     bool mShowHiddenFiles;
     DateFormat mDateFormat;
+    KeyboardType mKeyboardType;
     bool mShowFtpResult;
     int mFtpModalOption;
     std::string mFtpResultIP;
@@ -31,6 +32,7 @@ private:
     void ToggleFtpServer();
     void ToggleShowHiddenFiles();
     void ToggleDateFormat();
+    void ToggleKeyboardType();
     void SaveSettings();
     void LoadSettings();
 };

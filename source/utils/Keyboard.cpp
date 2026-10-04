@@ -1,4 +1,6 @@
 #include "Keyboard.hpp"
+#include "CustomKeyboard.hpp"
+#include "Settings.hpp"
 #include <SDL.h>
 #include <SDL_system.h>
 #include <SDL_syswm.h>
@@ -11,6 +13,10 @@ Keyboard::State Keyboard::sState            = Keyboard::State::Idle;
 std::string     Keyboard::sInputBuffer;
 bool            Keyboard::sPendingConfirmed = false;
 std::function<void(bool, const std::string&)> Keyboard::sCallback;
+
+static bool     sUsingCustom = false;
+static bool     sCustomPrimed = false;
+static uint32_t sPrevButtons = 0;
 
 static uint32_t MapWiimoteToVPADButtons(uint32_t wiimoteButtons) {
     uint32_t vpadButtons = 0;
@@ -132,18 +138,26 @@ bool Keyboard::Init() {
     SDL_SetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD, "1");
     SDL_EventState(SDL_SYSWMEVENT, SDL_ENABLE);
     SDL_AddEventWatch(KeyboardEventWatch, nullptr);
-    sState = State::Idle;
+    sState       = State::Idle;
+    sUsingCustom  = false;
+    sCustomPrimed = false;
+    sPrevButtons  = 0;
     WHBLogPrintf("Keyboard::Init: complete");
     return true;
 }
 
 void Keyboard::Shutdown() {
     SDL_DelEventWatch(KeyboardEventWatch, nullptr);
-    if (sState != State::Idle) {
+    if (sUsingCustom) {
+        CustomKeyboard::Close();
+    } else if (sState != State::Idle) {
         SDL_StopTextInput();
     }
-    sCallback = nullptr;
-    sState    = State::Idle;
+    sCallback     = nullptr;
+    sState        = State::Idle;
+    sUsingCustom  = false;
+    sCustomPrimed = false;
+    sPrevButtons  = 0;
 }
 
 bool Keyboard::RequestKeyboard(const std::string& initialText,
@@ -154,9 +168,24 @@ bool Keyboard::RequestKeyboard(const std::string& initialText,
         return false;
     }
 
-    sCallback         = callback;
     sInputBuffer      = "";
     sPendingConfirmed = false;
+
+    if (Settings::GetKeyboardType() == KeyboardType::Custom) {
+        sUsingCustom  = true;
+        sCallback     = nullptr;
+        sPrevButtons  = 0;
+        sCustomPrimed = false;
+        CustomKeyboard::Open(initialText, hint,
+                             mode == SDL_WIIU_SWKBD_KEYBOARD_MODE_RESTRICTED,
+                             std::move(callback));
+        sState = State::Visible;
+        WHBLogPrintf("Keyboard::RequestKeyboard: custom keyboard");
+        return true;
+    }
+
+    sUsingCustom = false;
+    sCallback    = callback;
 
     SDL_WiiUSetSWKBDInitialText(initialText.empty() ? nullptr : initialText.c_str());
     SDL_WiiUSetSWKBDHintText(hint.empty() ? nullptr : hint.c_str());
@@ -230,11 +259,29 @@ void Keyboard::Update() {
         }
     }
 
-    if (vpadValid) {
+    if (!sUsingCustom && vpadValid) {
         SDL_WiiUSetSWKBDVPAD(&vpadStatus);
     }
 
     SDL_PumpEvents();
+
+    if (sUsingCustom) {
+        const uint32_t held = vpadValid ? vpadStatus.hold : 0;
+
+        if (!sCustomPrimed) {
+            sCustomPrimed = true;
+            sPrevButtons  = held;
+            return;
+        }
+
+        const uint32_t pressed = held & ~sPrevButtons;
+        sPrevButtons = held;
+        CustomKeyboard::Update(held, pressed);
+        if (!CustomKeyboard::IsOpen()) {
+            sState = State::Idle;
+        }
+        return;
+    }
 
     if (sState == State::Disappearing) {
         if (nn::swkbd::GetStateInputForm() == nn::swkbd::State::Hidden) {
@@ -248,6 +295,9 @@ void Keyboard::Update() {
 }
 
 void Keyboard::Draw() {
+    if (sUsingCustom) {
+        CustomKeyboard::Draw();
+    }
 }
 
 Keyboard::State Keyboard::GetState() { return sState; }

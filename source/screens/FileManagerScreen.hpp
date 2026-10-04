@@ -22,6 +22,14 @@ public:
     bool Update(Input &input) override;
 
 private:
+    enum class PendingAction {
+        None,
+        Paste,
+        Rename,
+        CreateFile,
+        CreateFolder
+    };
+
     FileManager mFileManager;
     size_t mSelectedIndex;
     size_t mScrollOffset;
@@ -55,12 +63,26 @@ private:
     uint64_t mCopyProgressBytes;
     uint64_t mCopyProgressTotal;
     std::string mCopyProgressName;
+    bool mCopyProgressIsMove;
     
     bool mShowDeleteConfirmModal;
     int mDeleteConfirmSelection;
     std::vector<std::string> mPendingDeletePaths;
     std::vector<bool> mPendingDeleteIsDirectories;
     std::vector<std::string> mPendingDeleteFileNames;
+
+    bool mShowOverwriteModal;
+    int mOverwriteSelection;
+    std::vector<std::string> mPendingOverwritePaths;
+    size_t mPendingOverwriteIndex;
+    PendingAction mPendingOverwriteAction;
+    std::string mPendingTargetPath;
+    std::string mPendingTargetName;
+    std::string mPendingDuplicatePath;
+
+    std::vector<std::string> mPendingPastePaths;
+    std::vector<bool> mPendingPasteIsDirectories;
+    bool mPendingPasteIsMove;
     
     bool mSelectionMode;
     std::set<size_t> mSelectedIndices;
@@ -81,12 +103,21 @@ private:
     void DrawContextMenu();
     void DrawDeletionModal();
     void DrawDeleteConfirmModal();
+    void DrawOverwriteModal();
     void DrawLoadingModal();
     void DrawLaunchConfirmModal();
     void DrawCopyProgressModal();
     void DrawFtpModal();
     void CreateNewFile(const std::string& filename);
     void CreateNewFolder(const std::string& foldername);
+    void AskToOverwrite(PendingAction action, const std::string& existingPath, const std::string& newName = "");
+    void RunPendingAction(PendingAction action, const std::string& targetPath, const std::string& targetName);
+    int OverwriteOptionCount() const;
+    void StartPaste();
+    void QueuePaste(const std::vector<std::string>& paths, const std::vector<bool>& isDirectories, bool isMove);
+    bool PerformPaste();
+    void ClearPendingPaste();
+    void ClearPendingOverwrite();
     bool ScanDirectoryWithModal(const std::string& path);
     void LaunchHomebrew(const std::string& path);
 };
